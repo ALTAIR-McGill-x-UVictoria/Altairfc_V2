@@ -1,3 +1,3 @@
-from src.altairfc.mavlink import mavlink_connection
+from src.mavlink import mavlink_connection
 
 mavlink_connection()
