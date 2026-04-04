@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Users/bdagn/Documents/GitHub/Altairfc_V2 log --oneline)",
+      "Bash(git -C /c/Users/bdagn/Documents/GitHub/Altairfc_V2 status)",
+      "Bash(wc -l /c/Users/bdagn/Documents/GitHub/Altairfc_V2/altairfc/src/*.py)"
+    ]
+  }
+}

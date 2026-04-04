@@ -1,0 +1,35 @@
+[mavlink]
+port = "/dev/ttyACM0"
+baud = 115200
+
+[telemetry]
+port = "auto"   # auto-detects CP210x (LR-900p); set explicitly if ambiguous e.g. "/dev/ttyUSB0"
+baud = 57600
+
+[vesc]
+port = "/dev/ttyUSB1"
+baud = 115200
+
+[tasks.mavlink]
+enabled = true
+period_s = 0.02   # 50 Hz
+
+[tasks.telemetry]
+enabled = true
+period_s = 0.1    # 10 Hz
+
+[tasks.vesc]
+enabled = false
+period_s = 0.05   # 20 Hz
+
+[tasks.photodiode]
+enabled = false
+period_s = 0.01   # 100 Hz
+
+[tasks.power]
+enabled = false
+period_s = 0.1    # 10 Hz
+
+[system]
+log_level = "INFO"
+monitor_interval_s = 5.0
