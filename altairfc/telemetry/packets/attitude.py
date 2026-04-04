@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from telemetry.registry import FieldMeta, packet_registry
 
@@ -22,7 +23,7 @@ class AttitudePacket:
         "mavlink.attitude.yawspeed"
     """
 
-    DATASTORE_KEYS: dict[str, str] = {
+    DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "roll":       "mavlink.attitude.roll",
         "pitch":      "mavlink.attitude.pitch",
         "yaw":        "mavlink.attitude.yaw",

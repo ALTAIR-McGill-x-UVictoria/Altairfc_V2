@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from telemetry.registry import FieldMeta, packet_registry
 
@@ -19,7 +20,7 @@ class PhotodiodePacket:
         "photodiode.channel_3"
     """
 
-    DATASTORE_KEYS: dict[str, str] = {
+    DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "channel_0": "photodiode.channel_0",
         "channel_1": "photodiode.channel_1",
         "channel_2": "photodiode.channel_2",

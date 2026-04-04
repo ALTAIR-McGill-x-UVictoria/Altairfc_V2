@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from telemetry.registry import FieldMeta, packet_registry
 
@@ -18,7 +19,7 @@ class PowerPacket:
         "power.temperature"
     """
 
-    DATASTORE_KEYS: dict[str, str] = {
+    DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "voltage_bus":    "power.voltage_bus",
         "current_total":  "power.current_total",
         "temperature":    "power.temperature",
