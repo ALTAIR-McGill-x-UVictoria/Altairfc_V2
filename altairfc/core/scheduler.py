@@ -69,10 +69,15 @@ class TaskScheduler:
                 break
             for task in list(self._tasks.values()):
                 if task.state == TaskState.FAILED:
-                    logger.error(
-                        "Task %s has failed — triggering system shutdown", task.name
-                    )
-                    self._shutdown_event.set()
-                    return
+                    if task.critical:
+                        logger.error(
+                            "Critical task %s has failed — triggering system shutdown", task.name
+                        )
+                        self._shutdown_event.set()
+                        return
+                    else:
+                        logger.warning(
+                            "Task %s has failed (non-critical, system continues)", task.name
+                        )
                 if not task.is_alive and task.state == TaskState.RUNNING:
                     logger.warning("Task %s thread died unexpectedly", task.name)

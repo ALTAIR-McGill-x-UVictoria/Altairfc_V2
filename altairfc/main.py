@@ -15,18 +15,13 @@ Startup sequence:
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Bootstrap logging before importing project modules so their loggers work
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    stream=sys.stdout,
-)
+from core.log_format import setup_logging
+setup_logging("INFO")
 logger = logging.getLogger("main")
 
 # ---------------------------------------------------------------------------
@@ -57,7 +52,7 @@ def main() -> None:
     logger.info("Loading config from %s", config_path)
     config = SystemConfig.from_toml(config_path)
 
-    logging.getLogger().setLevel(config.log_level)
+    setup_logging(config.log_level)
 
     datastore = DataStore()
     scheduler = TaskScheduler(datastore, config)

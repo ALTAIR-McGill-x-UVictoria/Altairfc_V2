@@ -29,10 +29,11 @@ class BaseTask(ABC):
     execute() itself takes (deadline scheduling, not fixed sleep).
     """
 
-    def __init__(self, name: str, period_s: float, datastore: DataStore) -> None:
+    def __init__(self, name: str, period_s: float, datastore: DataStore, critical: bool = False) -> None:
         self.name = name
         self.period_s = period_s
         self.datastore = datastore
+        self.critical = critical  # if True, failure triggers system shutdown
         self.state = TaskState.IDLE
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None

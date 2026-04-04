@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from pymavlink import mavutil
 
@@ -38,28 +39,40 @@ class MavlinkTask(BaseTask):
         datastore: DataStore,
         port_config: SerialPortConfig,
         heartbeat_timeout_s: float = 10.0,
+        connect_retry_s: float = 5.0,
     ) -> None:
         super().__init__(name, period_s, datastore)
         self._port_config = port_config
         self._heartbeat_timeout_s = heartbeat_timeout_s
+        self._connect_retry_s = connect_retry_s
         self._master = None
 
     def setup(self) -> None:
-        logger.info(
-            "MavlinkTask: connecting to %s @ %d baud",
-            self._port_config.port,
-            self._port_config.baud,
-        )
-        self._master = mavutil.mavlink_connection(
-            self._port_config.port,
-            baud=self._port_config.baud,
-        )
-        self._master.wait_heartbeat(timeout=self._heartbeat_timeout_s)
-        logger.info(
-            "MavlinkTask: heartbeat received (system %d, component %d)",
-            self._master.target_system,
-            self._master.target_component,
-        )
+        while not self._stop_event.is_set():
+            try:
+                logger.info(
+                    "MavlinkTask: connecting to %s @ %d baud",
+                    self._port_config.port,
+                    self._port_config.baud,
+                )
+                self._master = mavutil.mavlink_connection(
+                    self._port_config.port,
+                    baud=self._port_config.baud,
+                )
+                self._master.wait_heartbeat(timeout=self._heartbeat_timeout_s)
+                logger.info(
+                    "MavlinkTask: heartbeat received (system %d, component %d)",
+                    self._master.target_system,
+                    self._master.target_component,
+                )
+                return  # connected successfully
+            except Exception as e:
+                logger.warning(
+                    "MavlinkTask: connection failed (%s) — retrying in %.0fs",
+                    e,
+                    self._connect_retry_s,
+                )
+                self._stop_event.wait(timeout=self._connect_retry_s)
 
     def execute(self) -> None:
         if self._master is None:
