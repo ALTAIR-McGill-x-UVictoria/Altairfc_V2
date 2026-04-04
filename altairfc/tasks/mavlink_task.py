@@ -12,7 +12,7 @@ from core.task_base import BaseTask
 logger = logging.getLogger(__name__)
 
 # MAVLink message types this task subscribes to
-_SUBSCRIBED_TYPES = ("ATTITUDE",)
+_SUBSCRIBED_TYPES = ("ATTITUDE", "GLOBAL_POSITION_INT")
 
 
 class MavlinkTask(BaseTask):
@@ -30,6 +30,11 @@ class MavlinkTask(BaseTask):
         mavlink.attitude.rollspeed   (float, rad/s)
         mavlink.attitude.pitchspeed  (float, rad/s)
         mavlink.attitude.yawspeed    (float, rad/s)
+        mavlink.gps.lat              (float, deg)   — from GLOBAL_POSITION_INT
+        mavlink.gps.lon              (float, deg)
+        mavlink.gps.alt              (float, m)     — MSL altitude
+        mavlink.gps.relative_alt     (float, m)     — above home
+        mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360
     """
 
     def __init__(
@@ -89,6 +94,14 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.attitude.rollspeed",  msg.rollspeed)
             self.datastore.write("mavlink.attitude.pitchspeed", msg.pitchspeed)
             self.datastore.write("mavlink.attitude.yawspeed",   msg.yawspeed)
+
+        elif msg_type == "GLOBAL_POSITION_INT":
+            # lat/lon are in 1e-7 degrees, alt/relative_alt in mm, hdg in cdeg
+            self.datastore.write("mavlink.gps.lat",          msg.lat  / 1e7)
+            self.datastore.write("mavlink.gps.lon",          msg.lon  / 1e7)
+            self.datastore.write("mavlink.gps.alt",          msg.alt  / 1e3)
+            self.datastore.write("mavlink.gps.relative_alt", msg.relative_alt / 1e3)
+            self.datastore.write("mavlink.gps.hdg",          msg.hdg  / 1e2)
 
     def teardown(self) -> None:
         if self._master is not None:

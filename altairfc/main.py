@@ -38,6 +38,7 @@ import telemetry.packets.attitude      # noqa: F401
 import telemetry.packets.power         # noqa: F401
 import telemetry.packets.vesc          # noqa: F401
 import telemetry.packets.photodiode    # noqa: F401
+import telemetry.packets.gps           # noqa: F401
 
 from tasks.mavlink_task import MavlinkTask
 from tasks.vesc_task import VescTask
