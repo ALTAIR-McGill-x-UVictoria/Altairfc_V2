@@ -14,10 +14,10 @@ Systemd unit file written in `/etc/systemd/system/flight.service`
 Commands:
 
 ```
-sudo systemctl enable flight    # auto-start on boot
-sudo systemctl disable flight   # stop auto-starting
-sudo systemctl start flight     # start now
-sudo systemctl stop flight      # stop now
-sudo systemctl status flight    # check state + recent logs
-journalctl -u flight -f         # tail logs
+sudo systemctl enable flight    -- auto-start on boot
+sudo systemctl disable flight   -- stop auto-starting
+sudo systemctl start flight     -- start now
+sudo systemctl stop flight      -- stop now
+sudo systemctl status flight    -- check state + recent logs
+journalctl -u flight -f         -- tail logs
 ```
