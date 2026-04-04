@@ -24,6 +24,6 @@ class PowerPacket:
         "temperature":    "power.temperature",
     }
 
-    voltage_bus:   float = field(default=0.0, metadata=FieldMeta("f", "Bus voltage",         "V"))
-    current_total: float = field(default=0.0, metadata=FieldMeta("f", "Total current draw",  "A"))
-    temperature:   float = field(default=0.0, metadata=FieldMeta("f", "Board temperature",   "degC"))
+    voltage_bus:   float = field(default=0.0, metadata=FieldMeta("f", "Bus voltage",        "V").as_metadata())
+    current_total: float = field(default=0.0, metadata=FieldMeta("f", "Total current draw", "A").as_metadata())
+    temperature:   float = field(default=0.0, metadata=FieldMeta("f", "Board temperature",  "degC").as_metadata())

@@ -26,7 +26,7 @@ class PhotodiodePacket:
         "channel_3": "photodiode.channel_3",
     }
 
-    channel_0: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 0", "V"))
-    channel_1: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 1", "V"))
-    channel_2: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 2", "V"))
-    channel_3: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 3", "V"))
+    channel_0: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 0", "V").as_metadata())
+    channel_1: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 1", "V").as_metadata())
+    channel_2: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 2", "V").as_metadata())
+    channel_3: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode channel 3", "V").as_metadata())

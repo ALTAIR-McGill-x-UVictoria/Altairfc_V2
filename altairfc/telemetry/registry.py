@@ -7,7 +7,7 @@ from typing import Callable, ClassVar, NamedTuple
 
 class FieldMeta(NamedTuple):
     """
-    Metadata attached to each packet dataclass field.
+    Metadata descriptor for a packet dataclass field.
 
     struct_char: Python struct format character for this field.
       Common values:
@@ -21,11 +21,18 @@ class FieldMeta(NamedTuple):
         'B' — uint8   (1 byte)
     description: Human-readable field description.
     units: Physical units string (e.g. "rad", "m/s", "V").
+
+    Usage with dataclasses.field():
+        roll: float = field(default=0.0, metadata=FieldMeta("f", "Roll angle", "rad").as_metadata())
     """
 
     struct_char: str
     description: str
     units: str
+
+    def as_metadata(self) -> dict:
+        """Wrap in a dict so dataclasses.field(metadata=...) accepts it."""
+        return {"field_meta": self}
 
 
 class _RegistryEntry:
@@ -77,13 +84,12 @@ class PacketRegistry:
             fmt_chars = []
             for f in dataclasses.fields(cls_):
                 meta = f.metadata
-                if isinstance(meta, FieldMeta):
-                    fmt_chars.append(meta.struct_char)
-                elif "struct_char" in meta:
-                    fmt_chars.append(meta["struct_char"])
+                if "field_meta" in meta:
+                    fmt_chars.append(meta["field_meta"].struct_char)
                 else:
                     raise TypeError(
-                        f"Field '{f.name}' in {cls_.__name__} is missing FieldMeta metadata"
+                        f"Field '{f.name}' in {cls_.__name__} is missing FieldMeta metadata. "
+                        f"Use: field(default=..., metadata=FieldMeta(...).as_metadata())"
                     )
 
             fmt = "<" + "".join(fmt_chars)

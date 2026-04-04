@@ -31,9 +31,9 @@ class AttitudePacket:
         "yawspeed":   "mavlink.attitude.yawspeed",
     }
 
-    roll:       float = field(default=0.0, metadata=FieldMeta("f", "Roll angle",  "rad"))
-    pitch:      float = field(default=0.0, metadata=FieldMeta("f", "Pitch angle", "rad"))
-    yaw:        float = field(default=0.0, metadata=FieldMeta("f", "Yaw angle",   "rad"))
-    rollspeed:  float = field(default=0.0, metadata=FieldMeta("f", "Roll rate",   "rad/s"))
-    pitchspeed: float = field(default=0.0, metadata=FieldMeta("f", "Pitch rate",  "rad/s"))
-    yawspeed:   float = field(default=0.0, metadata=FieldMeta("f", "Yaw rate",    "rad/s"))
+    roll:       float = field(default=0.0, metadata=FieldMeta("f", "Roll angle",  "rad").as_metadata())
+    pitch:      float = field(default=0.0, metadata=FieldMeta("f", "Pitch angle", "rad").as_metadata())
+    yaw:        float = field(default=0.0, metadata=FieldMeta("f", "Yaw angle",   "rad").as_metadata())
+    rollspeed:  float = field(default=0.0, metadata=FieldMeta("f", "Roll rate",   "rad/s").as_metadata())
+    pitchspeed: float = field(default=0.0, metadata=FieldMeta("f", "Pitch rate",  "rad/s").as_metadata())
+    yawspeed:   float = field(default=0.0, metadata=FieldMeta("f", "Yaw rate",    "rad/s").as_metadata())
