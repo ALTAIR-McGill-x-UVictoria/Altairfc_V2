@@ -13,4 +13,5 @@ __pycache__/
 # Editor
 .vscode/
 .idea/
-.claude/
+./claude/
+./claude/*
