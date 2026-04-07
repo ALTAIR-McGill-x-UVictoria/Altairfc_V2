@@ -34,6 +34,7 @@ from core.scheduler import TaskScheduler
 
 # Import all packet modules so their @register decorators fire before
 # TelemetryTask.execute() iterates the registry.
+import telemetry.packets.heartbeat     # noqa: F401
 import telemetry.packets.attitude      # noqa: F401
 import telemetry.packets.power         # noqa: F401
 import telemetry.packets.vesc          # noqa: F401

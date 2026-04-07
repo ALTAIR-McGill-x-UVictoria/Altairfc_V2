@@ -5,6 +5,7 @@ import logging
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
+from telemetry.packets.heartbeat import collect_system_stats
 from telemetry.registry import packet_registry
 from telemetry.serializer import PacketSerializer
 from telemetry.transport import SerialTransport
@@ -45,6 +46,11 @@ class TelemetryTask(BaseTask):
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
+        for key, value in collect_system_stats(
+            tasks_running=len(packet_registry.all_packets())
+        ).items():
+            self.datastore.write(key, value)
+
         for packet_id, pkt_class in packet_registry.all_packets().items():
             keys_map: dict[str, str] = getattr(pkt_class, "DATASTORE_KEYS", {})
             if not keys_map:
