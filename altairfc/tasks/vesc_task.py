@@ -10,16 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class VescTask(BaseTask):
-    """
-    VESC motor controller task (stub).
-
-    DataStore keys to write:
-        vesc.rpm
-        vesc.duty_cycle
-        vesc.motor_current
-        vesc.input_voltage
-        vesc.temperature_mos
-    """
 
     def __init__(
         self,

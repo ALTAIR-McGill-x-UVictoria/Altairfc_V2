@@ -33,3 +33,8 @@ period_s = 0.1    # 10 Hz
 [system]
 log_level = "INFO"
 monitor_interval_s = 5.0
+
+[ground_station]
+latitude = 45.5400
+longitude = -73.5800
+altitude = 55.0
