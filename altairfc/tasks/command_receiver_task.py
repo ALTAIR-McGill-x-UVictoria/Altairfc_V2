@@ -127,7 +127,7 @@ class CommandReceiverTask(BaseTask):
         ack = AckPacket(cmd_id=cmd_id, cmd_seq=cmd_seq, status=status)
         ack_frame = self._serializer.pack(ack, seq=self._ack_seq)
         self._ack_seq = (self._ack_seq + 1) & 0xFF
-        self._transport.send(ack_frame)
+        self._transport.send_priority(ack_frame)
         logger.info(
             "CommandReceiverTask: ACK sent (cmd_id=0x%02X cmd_seq=%d status=%d)",
             cmd_id, cmd_seq, status,

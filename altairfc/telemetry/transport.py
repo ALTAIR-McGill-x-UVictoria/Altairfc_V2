@@ -40,6 +40,7 @@ class SerialTransport:
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=write_queue_maxsize)
         self._serial: serial.Serial | None = None
         self._writer_thread: threading.Thread | None = None
+        self._write_lock = threading.Lock()
         # Seconds per byte at this baud rate
         self._secs_per_byte = _BITS_PER_BYTE / baud
 
@@ -66,6 +67,23 @@ class SerialTransport:
         if self._serial and self._serial.is_open and self._serial.in_waiting:
             return self._serial.read(self._serial.in_waiting)
         return b""
+
+    def send_priority(self, frame: bytes) -> None:
+        """Write a frame directly to the serial port, bypassing the write queue.
+
+        Used for ACK frames that must not wait behind queued telemetry frames.
+        Acquires a lock shared with the writer thread to prevent interleaved writes.
+        Safe to call from any thread.
+        """
+        if self._serial is None or not self._serial.is_open:
+            logger.warning("send_priority: serial not open, dropping %d-byte frame", len(frame))
+            return
+        with self._write_lock:
+            try:
+                self._serial.write(frame)
+                time.sleep(len(frame) * self._secs_per_byte)
+            except serial.SerialException:
+                logger.exception("send_priority write error")
 
     def send(self, frame: bytes) -> None:
         """Enqueue a frame. If the queue is full, drop the oldest to make room."""
@@ -95,9 +113,10 @@ class SerialTransport:
             if isinstance(item, bytes):
                 logger.debug("Writing telemetry frame (%d bytes)", len(item))
                 try:
-                    self._serial.write(item)
-                    # Pace output to baud rate so we don't flood the radio's TX buffer
-                    time.sleep(len(item) * self._secs_per_byte)
+                    with self._write_lock:
+                        self._serial.write(item)
+                        # Pace output to baud rate so we don't flood the radio's TX buffer
+                        time.sleep(len(item) * self._secs_per_byte)
                     logger.debug("Wrote telemetry frame successfully")
                 except serial.SerialException:
                     logger.exception("SerialTransport write error")
