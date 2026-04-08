@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 
 import serial
 
 logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
+
+# Serial framing overhead: 1 start + 8 data + 1 stop = 10 bits per byte
+_BITS_PER_BYTE = 10
 
 
 class SerialTransport:
@@ -17,18 +21,30 @@ class SerialTransport:
 
     send() enqueues a binary frame and returns immediately.
     A background writer thread dequeues frames and writes them to the serial port.
-    This prevents TelemetryTask from blocking on a slow serial port.
+
+    Two strategies prevent queue saturation when the radio can't keep up:
+
+    1. Overwrite-on-full: if the queue is full, the oldest frame is discarded
+       to make room for the newest. Stale telemetry is worthless — fresh data
+       is always preferred over old data that hasn't been sent yet.
+
+    2. Baud-paced writes: after each serial.write(), the writer thread sleeps
+       for the theoretical transmission time of that frame at the configured
+       baud rate. This prevents the writer from outrunning the radio's TX
+       buffer and blocking on subsequent writes.
     """
 
-    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 256) -> None:
+    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 64) -> None:
         self.port = port
         self.baud = baud
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=write_queue_maxsize)
         self._serial: serial.Serial | None = None
         self._writer_thread: threading.Thread | None = None
+        # Seconds per byte at this baud rate
+        self._secs_per_byte = _BITS_PER_BYTE / baud
 
     def open(self) -> None:
-        self._serial = serial.Serial(self.port, self.baud, timeout=1.0, rtscts=True)
+        self._serial = serial.Serial(self.port, self.baud, timeout=1.0)
         self._writer_thread = threading.Thread(
             target=self._writer_loop,
             name="telemetry-transport-writer",
@@ -46,10 +62,22 @@ class SerialTransport:
         logger.info("SerialTransport closed")
 
     def send(self, frame: bytes) -> None:
-        try:
-            self._queue.put_nowait(frame)
-        except queue.Full:
-            logger.warning("Telemetry write queue full — dropping frame (%d bytes)", len(frame))
+        """Enqueue a frame. If the queue is full, drop the oldest to make room."""
+        while True:
+            try:
+                self._queue.put_nowait(frame)
+                return
+            except queue.Full:
+                # Discard the oldest frame so the newest (freshest) data gets through
+                try:
+                    dropped = self._queue.get_nowait()
+                    if isinstance(dropped, bytes):
+                        logger.debug(
+                            "Queue full — dropped oldest frame (%d bytes) to enqueue newest (%d bytes)",
+                            len(dropped), len(frame),
+                        )
+                except queue.Empty:
+                    pass  # race: another thread drained it; retry put
 
     def _writer_loop(self) -> None:
         assert self._serial is not None
@@ -62,6 +90,8 @@ class SerialTransport:
                 logger.debug("Writing telemetry frame (%d bytes)", len(item))
                 try:
                     self._serial.write(item)
+                    # Pace output to baud rate so we don't flood the radio's TX buffer
+                    time.sleep(len(item) * self._secs_per_byte)
                     logger.debug("Wrote telemetry frame successfully")
                 except serial.SerialException:
                     logger.exception("SerialTransport write error")
