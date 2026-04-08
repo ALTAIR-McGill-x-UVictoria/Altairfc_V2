@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 
 from pymavlink import mavutil
@@ -133,37 +134,43 @@ class MavlinkTask(BaseTask):
                 break
             self._handle_message(msg)
 
+    @staticmethod
+    def _f(value: float, fallback: float = 0.0) -> float:
+        """Return fallback if value is NaN or infinite, else value."""
+        return fallback if not math.isfinite(value) else value
+
     def _handle_message(self, msg) -> None:
+        f = self._f
         msg_type = msg.get_type()
         if msg_type == "ATTITUDE":
-            self.datastore.write("mavlink.attitude.roll",       msg.roll)
-            self.datastore.write("mavlink.attitude.pitch",      msg.pitch)
-            self.datastore.write("mavlink.attitude.yaw",        msg.yaw)
-            self.datastore.write("mavlink.attitude.rollspeed",  msg.rollspeed)
-            self.datastore.write("mavlink.attitude.pitchspeed", msg.pitchspeed)
-            self.datastore.write("mavlink.attitude.yawspeed",   msg.yawspeed)
+            self.datastore.write("mavlink.attitude.roll",       f(msg.roll))
+            self.datastore.write("mavlink.attitude.pitch",      f(msg.pitch))
+            self.datastore.write("mavlink.attitude.yaw",        f(msg.yaw))
+            self.datastore.write("mavlink.attitude.rollspeed",  f(msg.rollspeed))
+            self.datastore.write("mavlink.attitude.pitchspeed", f(msg.pitchspeed))
+            self.datastore.write("mavlink.attitude.yawspeed",   f(msg.yawspeed))
 
         elif msg_type == "GPS_RAW_INT":
             # lat/lon in 1e-7 deg, alt in mm, cog (course over ground) in cdeg
-            self.datastore.write("mavlink.gps.lat", msg.lat / 1e7)
-            self.datastore.write("mavlink.gps.lon", msg.lon / 1e7)
-            self.datastore.write("mavlink.gps.alt", msg.alt / 1e3)
-            self.datastore.write("mavlink.gps.hdg", msg.cog / 1e2)
+            self.datastore.write("mavlink.gps.lat", f(msg.lat / 1e7))
+            self.datastore.write("mavlink.gps.lon", f(msg.lon / 1e7))
+            self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3))
+            self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2))
 
         elif msg_type == "LOCAL_POSITION_NED":
             # NED frame: z is positive downward, so relative_alt = -z
-            self.datastore.write("mavlink.gps.relative_alt", -msg.z)
+            self.datastore.write("mavlink.gps.relative_alt", f(-msg.z))
 
         elif msg_type == "SCALED_PRESSURE":
-            self.datastore.write("mavlink.environment.press_abs",   msg.press_abs)
-            self.datastore.write("mavlink.environment.press_diff",  msg.press_diff)
-            self.datastore.write("mavlink.environment.temperature", msg.temperature / 100.0)
+            self.datastore.write("mavlink.environment.press_abs",   f(msg.press_abs))
+            self.datastore.write("mavlink.environment.press_diff",  f(msg.press_diff))
+            self.datastore.write("mavlink.environment.temperature", f(msg.temperature / 100.0))
 
         elif msg_type == "VFR_HUD":
-            self.datastore.write("mavlink.environment.baro_alt",    msg.alt)
-            self.datastore.write("mavlink.environment.climb",       msg.climb)
-            self.datastore.write("mavlink.environment.airspeed",    msg.airspeed)
-            self.datastore.write("mavlink.environment.groundspeed", msg.groundspeed)
+            self.datastore.write("mavlink.environment.baro_alt",    f(msg.alt))
+            self.datastore.write("mavlink.environment.climb",       f(msg.climb))
+            self.datastore.write("mavlink.environment.airspeed",    f(msg.airspeed))
+            self.datastore.write("mavlink.environment.groundspeed", f(msg.groundspeed))
 
     def teardown(self) -> None:
         if self._master is not None:
