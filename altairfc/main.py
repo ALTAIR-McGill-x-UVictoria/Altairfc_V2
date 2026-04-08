@@ -42,6 +42,7 @@ import telemetry.packets.photodiode    # noqa: F401
 import telemetry.packets.gps           # noqa: F401
 import telemetry.packets.environment   # noqa: F401
 import telemetry.packets.events        # noqa: F401
+import telemetry.packets.ack           # noqa: F401
 
 # Import command modules so their @register decorators populate command_registry
 import telemetry.commands.arm          # noqa: F401

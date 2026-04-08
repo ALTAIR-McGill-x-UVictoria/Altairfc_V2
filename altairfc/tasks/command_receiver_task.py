@@ -6,11 +6,17 @@ import logging
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from telemetry.command_registry import command_registry
+from telemetry.packets.ack import AckPacket
+from telemetry.registry import packet_registry
 from telemetry.serializer import PacketSerializer, SYNC_BYTE, HEADER_SIZE, CRC_SIZE, _HEADER_STRUCT
 
 logger = logging.getLogger(__name__)
 
 MIN_FRAME_SIZE = HEADER_SIZE + CRC_SIZE
+
+# ACK status codes
+ACK_OK       = 0
+ACK_REJECTED = 1
 
 
 class CommandReceiverTask(BaseTask):
@@ -40,6 +46,8 @@ class CommandReceiverTask(BaseTask):
         self._transport = transport
         self._serializer = PacketSerializer()
         self._buf = bytearray()
+        # Pre-compiled struct for the ACK packet (looked up once from registry)
+        self._ack_seq: int = 0
 
     def setup(self) -> None:
         # Transport already opened by TelemetryTask — do not call transport.open() here
@@ -71,7 +79,7 @@ class CommandReceiverTask(BaseTask):
             if len(self._buf) < HEADER_SIZE:
                 return  # wait for full header
 
-            _, _, _, _, length = _HEADER_STRUCT.unpack_from(self._buf, 0)
+            _, cmd_id, cmd_seq, _, length = _HEADER_STRUCT.unpack_from(self._buf, 0)
             frame_size = HEADER_SIZE + length + CRC_SIZE
 
             if len(self._buf) < frame_size:
@@ -87,9 +95,9 @@ class CommandReceiverTask(BaseTask):
                 continue
 
             command, _ = result
-            self._dispatch(command)
+            self._dispatch(command, cmd_id, cmd_seq)
 
-    def _dispatch(self, command: object) -> None:
+    def _dispatch(self, command: object, cmd_id: int, cmd_seq: int) -> None:
         ds_key = getattr(type(command), "DATASTORE_KEY", None)
         if ds_key is None:
             logger.warning(
@@ -102,4 +110,28 @@ class CommandReceiverTask(BaseTask):
         self.datastore.write(ds_key, value)
         logger.info(
             "CommandReceiverTask: %s → %s = %s", type(command).__name__, ds_key, value
+        )
+
+        # Send ACK back to GS — always accepted at this layer; rejection is
+        # signalled by FlightStageTask ignoring the key when conditions aren't met.
+        # For LAUNCH_OK specifically, we peek at flight_stage to give an immediate
+        # rejection ACK if the stage won't allow it.
+        from tasks.flight_stage_task import STAGE_ARMED  # local import to avoid circular
+        status = ACK_OK
+        if ds_key == "command.launch_ok":
+            stage = int(self.datastore.read("event.flight_stage", default=0))
+            if stage != STAGE_ARMED:
+                status = ACK_REJECTED
+                logger.warning(
+                    "CommandReceiverTask: LAUNCH_OK rejected — stage is %d, expected %d (ARMED)",
+                    stage, STAGE_ARMED,
+                )
+
+        ack = AckPacket(cmd_id=cmd_id, cmd_seq=cmd_seq, status=status)
+        ack_frame = self._serializer.pack(ack, seq=self._ack_seq)
+        self._ack_seq = (self._ack_seq + 1) & 0xFF
+        self._transport.send(ack_frame)
+        logger.info(
+            "CommandReceiverTask: ACK sent (cmd_id=0x%02X cmd_seq=%d status=%d)",
+            cmd_id, cmd_seq, status,
         )
