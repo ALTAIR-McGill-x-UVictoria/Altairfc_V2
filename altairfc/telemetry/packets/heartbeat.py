@@ -16,7 +16,7 @@ class HeartbeatPacket:
     is alive and to carry basic system health metrics.
 
     Packet ID: 0x00
-    Payload size: 2 * 8 + 4 * 4 = 32 bytes
+    Payload size: 2 * 8 + 5 * 4 = 36 bytes
 
     Fields:
         time_unix          — wall-clock UNIX timestamp (float64, s)
@@ -25,6 +25,7 @@ class HeartbeatPacket:
         mem_used_pct       — RSS / MemTotal from /proc/meminfo (float32, %)
         tasks_running      — number of tasks registered in the scheduler (float32, count)
         pixhawk_connected  — 1.0 if MAVLink heartbeat received, 0.0 otherwise (float32, bool)
+        vesc_connected     — 1.0 if VESC serial link is active, 0.0 otherwise (float32, bool)
 
     DataStore keys (written by TelemetryTask before packet iteration):
         "system.time_unix"
@@ -33,6 +34,7 @@ class HeartbeatPacket:
         "system.mem_used_pct"
         "system.tasks_running"
         "system.pixhawk_connected"
+        "system.vesc_connected"
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
@@ -42,6 +44,7 @@ class HeartbeatPacket:
         "mem_used_pct":       "system.mem_used_pct",
         "tasks_running":      "system.tasks_running",
         "pixhawk_connected":  "system.pixhawk_connected",
+        "vesc_connected":     "system.vesc_connected",
     }
 
     time_unix:          float = field(default=0.0, metadata=FieldMeta("d", "UNIX wall-clock time",    "s").as_metadata())
@@ -50,6 +53,7 @@ class HeartbeatPacket:
     mem_used_pct:       float = field(default=0.0, metadata=FieldMeta("f", "Memory used",             "%").as_metadata())
     tasks_running:      float = field(default=0.0, metadata=FieldMeta("f", "Tasks running",           "count").as_metadata())
     pixhawk_connected:  float = field(default=0.0, metadata=FieldMeta("f", "Pixhawk link",            "bool").as_metadata())
+    vesc_connected:     float = field(default=0.0, metadata=FieldMeta("f", "VESC link",               "bool").as_metadata())
 
 
 # ---------------------------------------------------------------------------
@@ -105,4 +109,6 @@ def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
         "system.cpu_load_pct":  read_cpu_load(),
         "system.mem_used_pct":  read_mem_used_pct(),
         "system.tasks_running": float(tasks_running),
+        # system.pixhawk_connected and system.vesc_connected are written by
+        # their respective tasks and must not be overwritten here.
     }

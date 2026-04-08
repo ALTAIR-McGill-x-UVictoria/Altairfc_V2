@@ -23,9 +23,11 @@ class VescTask(BaseTask):
 
     def setup(self) -> None:
         logger.info("VescTask: setup not yet implemented")
+        self.datastore.write("system.vesc_connected", 0.0)
 
     def execute(self) -> None:
         pass
 
     def teardown(self) -> None:
+        self.datastore.write("system.vesc_connected", 0.0)
         logger.info("VescTask: teardown not yet implemented")
