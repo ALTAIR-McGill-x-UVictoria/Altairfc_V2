@@ -10,6 +10,52 @@ from core.task_base import BaseTask
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Hardware stubs — replace with real GPIO calls once pins are assigned
+# ---------------------------------------------------------------------------
+
+def _hw_read_arm_switch() -> bool:
+    """
+    TODO: Read the physical arm switch / GPIO input.
+
+    Example (RPi.GPIO):
+        import RPi.GPIO as GPIO
+        ARM_SWITCH_PIN = 17          # BCM pin number — configure here
+        GPIO.setup(ARM_SWITCH_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        return GPIO.input(ARM_SWITCH_PIN) == GPIO.HIGH
+
+    Example (gpiozero):
+        from gpiozero import Button
+        _arm_button = Button(17)
+        return _arm_button.is_pressed
+
+    Returns False (unarmed) until implemented.
+    """
+    return False
+
+
+def _hw_fire_cutdown() -> None:
+    """
+    TODO: Actuate the cutdown mechanism via GPIO output.
+
+    Example (RPi.GPIO):
+        import RPi.GPIO as GPIO
+        CUTDOWN_PIN = 27             # BCM pin number — configure here
+        GPIO.setup(CUTDOWN_PIN, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.output(CUTDOWN_PIN, GPIO.HIGH)
+        # Hold high for the mechanism's required pulse duration, then release:
+        # time.sleep(0.5)
+        # GPIO.output(CUTDOWN_PIN, GPIO.LOW)
+
+    Example (gpiozero):
+        from gpiozero import OutputDevice
+        _cutdown = OutputDevice(27, active_high=True, initial_value=False)
+        _cutdown.on()
+
+    Does nothing until implemented.
+    """
+    logger.warning("FlightStageTask: _hw_fire_cutdown() called — STUB, no GPIO action taken")
+
 # Flight stage integer constants
 STAGE_PREFLIGHT    = 0
 STAGE_ARMED        = 1
@@ -108,13 +154,20 @@ class FlightStageTask(BaseTask):
         logger.info("FlightStageTask: initializing — writing all event.* keys to 0")
         for key, val in self._flags.items():
             self.datastore.write(f"event.{key}", val)
+        # Write data_logging_active = 1 immediately (logging starts with the Pi)
+        self._write_flag("data_logging_active", 1)
 
     def execute(self) -> None:
         now = time.monotonic()
 
         baro_alt: float = self.datastore.read("mavlink.environment.baro_alt", default=0.0)
         climb:    float = self.datastore.read("mavlink.environment.climb",    default=0.0)
-        arm_state: int  = int(self.datastore.read("event.arm_state",          default=0))
+
+        # Arm state: poll physical switch (stub returns False until GPIO is configured)
+        hw_armed = _hw_read_arm_switch()
+        if hw_armed:
+            self.datastore.write("event.arm_state", 1)
+        arm_state: int = int(self.datastore.read("event.arm_state", default=0))
 
         # Keep rolling altitude history and update apogee
         self._alt_history.append((now, baro_alt))
@@ -177,6 +230,7 @@ class FlightStageTask(BaseTask):
                     "FlightStageTask: termination altitude %.1f m reached — firing cutdown",
                     self._cfg.termination_altitude_m,
                 )
+                _hw_fire_cutdown()  # TODO: stub — replace with real GPIO once pin is assigned
                 self._write_flag("cutdown_fired", 1)
                 self._cutdown_triggered_alt = baro_alt
                 self._cutdown_trigger_time = now

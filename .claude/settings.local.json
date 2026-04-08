@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -h \"struct.calcsize\\\\|format\\\\|_FMT\\\\|_FORMAT\\\\|STRUCT\" \"c:/Users/bdagn/Documents/GitHub/Altairfc_V2/altairfc/telemetry/packets/\"*.py)"
+    ]
+  }
+}

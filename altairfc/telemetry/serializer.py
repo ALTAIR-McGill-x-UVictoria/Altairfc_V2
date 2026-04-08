@@ -44,7 +44,7 @@ class PacketSerializer:
         field_values = [getattr(packet, f.name) for f in dataclasses.fields(packet)]
         payload = pkt_struct.pack(*field_values)
 
-        timestamp = time.monotonic()
+        timestamp = time.time()
         header_body = _HEADER_STRUCT.pack(
             SYNC_BYTE,
             packet_id & 0xFF,
