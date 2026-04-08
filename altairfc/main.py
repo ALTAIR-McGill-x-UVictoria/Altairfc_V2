@@ -40,8 +40,11 @@ import telemetry.packets.power         # noqa: F401
 import telemetry.packets.vesc          # noqa: F401
 import telemetry.packets.photodiode    # noqa: F401
 import telemetry.packets.gps           # noqa: F401
+import telemetry.packets.environment   # noqa: F401
+import telemetry.packets.events        # noqa: F401
 
 from tasks.mavlink_task import MavlinkTask
+from tasks.flight_stage_task import FlightStageTask
 from tasks.vesc_task import VescTask
 from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
@@ -81,6 +84,15 @@ def main() -> None:
             period_s=config.tasks["telemetry"].period_s,
             datastore=datastore,
             transport=telemetry_transport,
+        )
+    )
+
+    scheduler.register(
+        FlightStageTask(
+            name="flight_stage",
+            period_s=config.tasks["flight_stage"].period_s,
+            datastore=datastore,
+            config=config.flight_stage,
         )
     )
 

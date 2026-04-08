@@ -40,11 +40,26 @@ class TaskConfig:
 
 
 @dataclass
+class FlightStageConfig:
+    termination_altitude_m:       float = 25000.0
+    burst_altitude_m:             float = 30000.0
+    burst_altitude_uncertainty_m: float = 2000.0
+    ascent_detect_window_s:       float = 30.0
+    ascent_detect_gain_m:         float = 50.0
+    apogee_fraction:              float = 0.95
+    landing_fraction:             float = 0.05
+    recovery_stationary_s:        float = 10.0
+    termination_confirm_drop_m:   float = 100.0
+    termination_confirm_window_s: float = 30.0
+
+
+@dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
     vesc: SerialPortConfig
     tasks: dict[str, TaskConfig]
+    flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
 
@@ -66,12 +81,27 @@ class SystemConfig:
                 extra={k: v for k, v in cfg.items() if k not in ("enabled", "period_s")},
             )
 
+        fs_raw = data.get("flight_stage", {})
+        flight_stage = FlightStageConfig(
+            termination_altitude_m=fs_raw.get("termination_altitude_m", 25000.0),
+            burst_altitude_m=fs_raw.get("burst_altitude_m", 30000.0),
+            burst_altitude_uncertainty_m=fs_raw.get("burst_altitude_uncertainty_m", 2000.0),
+            ascent_detect_window_s=fs_raw.get("ascent_detect_window_s", 30.0),
+            ascent_detect_gain_m=fs_raw.get("ascent_detect_gain_m", 50.0),
+            apogee_fraction=fs_raw.get("apogee_fraction", 0.95),
+            landing_fraction=fs_raw.get("landing_fraction", 0.05),
+            recovery_stationary_s=fs_raw.get("recovery_stationary_s", 10.0),
+            termination_confirm_drop_m=fs_raw.get("termination_confirm_drop_m", 100.0),
+            termination_confirm_window_s=fs_raw.get("termination_confirm_window_s", 30.0),
+        )
+
         system = data.get("system", {})
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
             vesc=vesc,
             tasks=tasks,
+            flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s", 5.0),
         )

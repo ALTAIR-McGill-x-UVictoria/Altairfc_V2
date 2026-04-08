@@ -12,7 +12,7 @@ from core.task_base import BaseTask
 logger = logging.getLogger(__name__)
 
 # MAVLink message types this task subscribes to
-_SUBSCRIBED_TYPES = ("ATTITUDE", "GLOBAL_POSITION_INT")
+_SUBSCRIBED_TYPES = ("ATTITUDE", "GLOBAL_POSITION_INT", "SCALED_PRESSURE", "VFR_HUD")
 
 
 class MavlinkTask(BaseTask):
@@ -35,6 +35,14 @@ class MavlinkTask(BaseTask):
         mavlink.gps.alt              (float, m)     — MSL altitude
         mavlink.gps.relative_alt     (float, m)     — above home
         mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360
+        mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
+        mavlink.environment.press_diff   (float, hPa)
+        mavlink.environment.temperature  (float, °C)   — centidegrees converted
+        mavlink.environment.baro_alt     (float, m)    — from VFR_HUD
+        mavlink.environment.climb        (float, m/s)
+        mavlink.environment.airspeed     (float, m/s)
+        mavlink.environment.groundspeed  (float, m/s)
+        system.pixhawk_connected         (float, 0.0/1.0)
     """
 
     def __init__(
@@ -70,6 +78,7 @@ class MavlinkTask(BaseTask):
                     self._master.target_system,
                     self._master.target_component,
                 )
+                self.datastore.write("system.pixhawk_connected", 1.0)
                 self._request_message_rates()
                 return  # connected successfully
             except Exception as e:
@@ -78,6 +87,7 @@ class MavlinkTask(BaseTask):
                     e,
                     self._connect_retry_s,
                 )
+                self.datastore.write("system.pixhawk_connected", 0.0)
                 self._stop_event.wait(timeout=self._connect_retry_s)
 
     def _request_message_rates(self) -> None:
@@ -90,6 +100,8 @@ class MavlinkTask(BaseTask):
         requests = [
             (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,            20_000),   # 50 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200_000),  #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_SCALED_PRESSURE,     200_000),  #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD,             200_000),  #  5 Hz
         ]
         for msg_id, interval_us in requests:
             self._master.mav.command_long_send(
@@ -135,6 +147,17 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.gps.alt",          msg.alt          / 1e3)
             self.datastore.write("mavlink.gps.relative_alt", msg.relative_alt / 1e3)
             self.datastore.write("mavlink.gps.hdg",          msg.hdg          / 1e2)
+
+        elif msg_type == "SCALED_PRESSURE":
+            self.datastore.write("mavlink.environment.press_abs",   msg.press_abs)
+            self.datastore.write("mavlink.environment.press_diff",  msg.press_diff)
+            self.datastore.write("mavlink.environment.temperature", msg.temperature / 100.0)
+
+        elif msg_type == "VFR_HUD":
+            self.datastore.write("mavlink.environment.baro_alt",    msg.alt)
+            self.datastore.write("mavlink.environment.climb",       msg.climb)
+            self.datastore.write("mavlink.environment.airspeed",    msg.airspeed)
+            self.datastore.write("mavlink.environment.groundspeed", msg.groundspeed)
 
     def teardown(self) -> None:
         if self._master is not None:

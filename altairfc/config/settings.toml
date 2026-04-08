@@ -30,6 +30,22 @@ period_s = 0.01   # 100 Hz
 enabled = false
 period_s = 0.1    # 10 Hz
 
+[tasks.flight_stage]
+enabled  = true
+period_s = 0.5    # 2 Hz
+
+[flight_stage]
+termination_altitude_m        = 25000.0   # fire cutdown above this baro MSL altitude (m)
+burst_altitude_m              = 30000.0   # expected natural burst altitude (m)
+burst_altitude_uncertainty_m  = 2000.0    # ± window for burst zone detection (m)
+ascent_detect_window_s        = 30.0      # rolling window to confirm ascent (s)
+ascent_detect_gain_m          = 50.0      # altitude gain over window to confirm ascent (m)
+apogee_fraction               = 0.95      # descent declared when alt ≤ this × measured apogee
+landing_fraction              = 0.05      # landing declared when alt ≤ this × measured apogee
+recovery_stationary_s         = 10.0      # seconds of altitude stationary (±2 m) → recovery
+termination_confirm_drop_m    = 100.0     # altitude drop required to confirm cutdown worked (m)
+termination_confirm_window_s  = 30.0      # time window for termination confirmation (s)
+
 [system]
 log_level = "INFO"
 monitor_interval_s = 5.0
