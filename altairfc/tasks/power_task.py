@@ -20,9 +20,11 @@ class PowerTask(BaseTask):
 
     def setup(self) -> None:
         logger.info("PowerTask: setup not yet implemented")
+        self.datastore.write("system.power_connected", 0.0)
 
     def execute(self) -> None:
         pass
 
     def teardown(self) -> None:
+        self.datastore.write("system.power_connected", 0.0)
         logger.info("PowerTask: teardown not yet implemented")

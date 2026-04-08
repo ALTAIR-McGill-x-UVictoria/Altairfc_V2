@@ -21,9 +21,11 @@ class PhotodiodeTask(BaseTask):
 
     def setup(self) -> None:
         logger.info("PhotodiodeTask: setup not yet implemented")
+        self.datastore.write("system.photodiode_connected", 0.0)
 
     def execute(self) -> None:
         pass
 
     def teardown(self) -> None:
+        self.datastore.write("system.photodiode_connected", 0.0)
         logger.info("PhotodiodeTask: teardown not yet implemented")

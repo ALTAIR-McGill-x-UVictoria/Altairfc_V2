@@ -61,6 +61,12 @@ class SerialTransport:
             self._serial.close()
         logger.info("SerialTransport closed")
 
+    def read_available(self) -> bytes:
+        """Read all currently available bytes (non-blocking). Safe to call from a separate thread."""
+        if self._serial and self._serial.is_open and self._serial.in_waiting:
+            return self._serial.read(self._serial.in_waiting)
+        return b""
+
     def send(self, frame: bytes) -> None:
         """Enqueue a frame. If the queue is full, drop the oldest to make room."""
         while True:

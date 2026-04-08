@@ -30,6 +30,10 @@ period_s = 0.01   # 100 Hz
 enabled = false
 period_s = 0.1    # 10 Hz
 
+[tasks.command_receiver]
+enabled  = true
+period_s = 0.05   # 20 Hz — drains incoming command frames between telemetry cycles
+
 [tasks.flight_stage]
 enabled  = true
 period_s = 0.5    # 2 Hz

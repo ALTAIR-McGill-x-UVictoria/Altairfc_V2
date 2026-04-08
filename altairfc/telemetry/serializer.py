@@ -6,7 +6,7 @@ import logging
 import struct
 import time
 
-from telemetry.registry import packet_registry
+from telemetry.registry import packet_registry, PacketRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +33,12 @@ class PacketSerializer:
     (i.e. everything between SYNC and CRC, exclusive of both.)
     """
 
-    def pack(self, packet: object, seq: int = 0) -> bytes:
+    def pack(self, packet: object, seq: int = 0, registry: PacketRegistry | None = None) -> bytes:
+        if registry is None:
+            registry = packet_registry
         pkt_type = type(packet)
-        packet_id = packet_registry.get_id(pkt_type)
-        pkt_struct = packet_registry.get_struct(pkt_type)
+        packet_id = registry.get_id(pkt_type)
+        pkt_struct = registry.get_struct(pkt_type)
 
         if packet_id is None or pkt_struct is None:
             raise ValueError(f"Packet type {pkt_type.__name__} is not registered")
@@ -59,11 +61,13 @@ class PacketSerializer:
 
         return header_body + payload + _CRC_STRUCT.pack(crc)
 
-    def unpack(self, raw: bytes) -> tuple[object, float] | None:
+    def unpack(self, raw: bytes, registry: PacketRegistry | None = None) -> tuple[object, float] | None:
         if len(raw) < MIN_FRAME_SIZE:
             logger.warning("Frame too short: %d bytes", len(raw))
             return None
 
+        if registry is None:
+            registry = packet_registry
         sync, packet_id, seq, timestamp, length = _HEADER_STRUCT.unpack_from(raw, 0)
 
         if sync != SYNC_BYTE:
@@ -89,7 +93,7 @@ class PacketSerializer:
             )
             return None
 
-        result = packet_registry.get_by_id(packet_id)
+        result = registry.get_by_id(packet_id)
         if result is None:
             logger.warning("Unknown packet ID: 0x%02X", packet_id)
             return None

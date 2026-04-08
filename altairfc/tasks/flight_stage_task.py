@@ -163,6 +163,20 @@ class FlightStageTask(BaseTask):
         baro_alt: float = self.datastore.read("mavlink.environment.baro_alt", default=0.0)
         climb:    float = self.datastore.read("mavlink.environment.climb",    default=0.0)
 
+        # Poll GS ARM command (one-shot latch: read, apply, clear)
+        if float(self.datastore.read("command.arm", default=0.0)) >= 1.0:
+            self.datastore.write("command.arm", 0.0)
+            self.datastore.write("event.arm_state", 1)
+            logger.info("FlightStageTask: ARM command received from GS")
+
+        # Poll GS LAUNCH_OK command — only valid in ARMED stage
+        if float(self.datastore.read("command.launch_ok", default=0.0)) >= 1.0:
+            self.datastore.write("command.launch_ok", 0.0)
+            if self._stage == STAGE_ARMED:
+                self._write_flag("launch_detected", 1)
+                self._stage = STAGE_LAUNCH
+                logger.info("FlightStageTask: LAUNCH_OK command received from GS — advancing to STAGE_LAUNCH")
+
         # Arm state: poll physical switch (stub returns False until GPIO is configured)
         hw_armed = _hw_read_arm_switch()
         if hw_armed:

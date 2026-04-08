@@ -16,16 +16,18 @@ class HeartbeatPacket:
     is alive and to carry basic system health metrics.
 
     Packet ID: 0x00
-    Payload size: 2 * 8 + 5 * 4 = 36 bytes
+    Payload size: 2 * 8 + 7 * 4 = 44 bytes
 
     Fields:
-        time_unix          — wall-clock UNIX timestamp (float64, s)
-        uptime_s           — time.monotonic() seconds since process start (float64, s)
-        cpu_load_pct       — 1-minute load average scaled to percent of one core (float32, %)
-        mem_used_pct       — RSS / MemTotal from /proc/meminfo (float32, %)
-        tasks_running      — number of tasks registered in the scheduler (float32, count)
-        pixhawk_connected  — 1.0 if MAVLink heartbeat received, 0.0 otherwise (float32, bool)
-        vesc_connected     — 1.0 if VESC serial link is active, 0.0 otherwise (float32, bool)
+        time_unix            — wall-clock UNIX timestamp (float64, s)
+        uptime_s             — time.monotonic() seconds since process start (float64, s)
+        cpu_load_pct         — 1-minute load average scaled to percent of one core (float32, %)
+        mem_used_pct         — RSS / MemTotal from /proc/meminfo (float32, %)
+        tasks_running        — number of tasks registered in the scheduler (float32, count)
+        pixhawk_connected    — 1.0 if MAVLink heartbeat received, 0.0 otherwise (float32, bool)
+        vesc_connected       — 1.0 if VESC serial link is active, 0.0 otherwise (float32, bool)
+        power_connected      — 1.0 if power daughterboard is active, 0.0 otherwise (float32, bool)
+        photodiode_connected — 1.0 if photodiode daughterboard is active, 0.0 otherwise (float32, bool)
 
     DataStore keys (written by TelemetryTask before packet iteration):
         "system.time_unix"
@@ -35,25 +37,31 @@ class HeartbeatPacket:
         "system.tasks_running"
         "system.pixhawk_connected"
         "system.vesc_connected"
+        "system.power_connected"
+        "system.photodiode_connected"
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
-        "time_unix":          "system.time_unix",
-        "uptime_s":           "system.uptime_s",
-        "cpu_load_pct":       "system.cpu_load_pct",
-        "mem_used_pct":       "system.mem_used_pct",
-        "tasks_running":      "system.tasks_running",
-        "pixhawk_connected":  "system.pixhawk_connected",
-        "vesc_connected":     "system.vesc_connected",
+        "time_unix":            "system.time_unix",
+        "uptime_s":             "system.uptime_s",
+        "cpu_load_pct":         "system.cpu_load_pct",
+        "mem_used_pct":         "system.mem_used_pct",
+        "tasks_running":        "system.tasks_running",
+        "pixhawk_connected":    "system.pixhawk_connected",
+        "vesc_connected":       "system.vesc_connected",
+        "power_connected":      "system.power_connected",
+        "photodiode_connected": "system.photodiode_connected",
     }
 
-    time_unix:          float = field(default=0.0, metadata=FieldMeta("d", "UNIX wall-clock time",    "s").as_metadata())
-    uptime_s:           float = field(default=0.0, metadata=FieldMeta("d", "Process uptime",          "s").as_metadata())
-    cpu_load_pct:       float = field(default=0.0, metadata=FieldMeta("f", "1-min CPU load (1 core)", "%").as_metadata())
-    mem_used_pct:       float = field(default=0.0, metadata=FieldMeta("f", "Memory used",             "%").as_metadata())
-    tasks_running:      float = field(default=0.0, metadata=FieldMeta("f", "Tasks running",           "count").as_metadata())
-    pixhawk_connected:  float = field(default=0.0, metadata=FieldMeta("f", "Pixhawk link",            "bool").as_metadata())
-    vesc_connected:     float = field(default=0.0, metadata=FieldMeta("f", "VESC link",               "bool").as_metadata())
+    time_unix:            float = field(default=0.0, metadata=FieldMeta("d", "UNIX wall-clock time",       "s").as_metadata())
+    uptime_s:             float = field(default=0.0, metadata=FieldMeta("d", "Process uptime",             "s").as_metadata())
+    cpu_load_pct:         float = field(default=0.0, metadata=FieldMeta("f", "1-min CPU load (1 core)",   "%").as_metadata())
+    mem_used_pct:         float = field(default=0.0, metadata=FieldMeta("f", "Memory used",               "%").as_metadata())
+    tasks_running:        float = field(default=0.0, metadata=FieldMeta("f", "Tasks running",             "count").as_metadata())
+    pixhawk_connected:    float = field(default=0.0, metadata=FieldMeta("f", "Pixhawk link",              "bool").as_metadata())
+    vesc_connected:       float = field(default=0.0, metadata=FieldMeta("f", "VESC link",                 "bool").as_metadata())
+    power_connected:      float = field(default=0.0, metadata=FieldMeta("f", "Power board link",          "bool").as_metadata())
+    photodiode_connected: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode board link",     "bool").as_metadata())
 
 
 # ---------------------------------------------------------------------------

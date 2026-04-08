@@ -43,7 +43,12 @@ import telemetry.packets.gps           # noqa: F401
 import telemetry.packets.environment   # noqa: F401
 import telemetry.packets.events        # noqa: F401
 
+# Import command modules so their @register decorators populate command_registry
+import telemetry.commands.arm          # noqa: F401
+import telemetry.commands.launch_ok    # noqa: F401
+
 from tasks.mavlink_task import MavlinkTask
+from tasks.command_receiver_task import CommandReceiverTask
 from tasks.flight_stage_task import FlightStageTask
 from tasks.vesc_task import VescTask
 from tasks.photodiode_task import PhotodiodeTask
@@ -82,6 +87,15 @@ def main() -> None:
         TelemetryTask(
             name="telemetry",
             period_s=config.tasks["telemetry"].period_s,
+            datastore=datastore,
+            transport=telemetry_transport,
+        )
+    )
+
+    scheduler.register(
+        CommandReceiverTask(
+            name="command_receiver",
+            period_s=config.tasks["command_receiver"].period_s,
             datastore=datastore,
             transport=telemetry_transport,
         )
