@@ -99,33 +99,30 @@ class CommandReceiverTask(BaseTask):
 
     def _dispatch(self, command: object, cmd_id: int, cmd_seq: int) -> None:
         ds_key = getattr(type(command), "DATASTORE_KEY", None)
-        if ds_key is None:
-            logger.warning(
-                "CommandReceiverTask: no DATASTORE_KEY on %s", type(command).__name__
-            )
-            return
-
-        fields = dataclasses.fields(command)
-        value = float(getattr(command, fields[0].name, 1)) if fields else 1.0
-        self.datastore.write(ds_key, value)
-        logger.info(
-            "CommandReceiverTask: %s → %s = %s", type(command).__name__, ds_key, value
-        )
-
-        # Send ACK back to GS — always accepted at this layer; rejection is
-        # signalled by FlightStageTask ignoring the key when conditions aren't met.
-        # For LAUNCH_OK specifically, we peek at flight_stage to give an immediate
-        # rejection ACK if the stage won't allow it.
-        from tasks.flight_stage_task import STAGE_ARMED  # local import to avoid circular
         status = ACK_OK
-        if ds_key == "command.launch_ok":
-            stage = int(self.datastore.read("event.flight_stage", default=0))
-            if stage != STAGE_ARMED:
-                status = ACK_REJECTED
-                logger.warning(
-                    "CommandReceiverTask: LAUNCH_OK rejected — stage is %d, expected %d (ARMED)",
-                    stage, STAGE_ARMED,
-                )
+
+        if ds_key is not None:
+            # Write the command value to the DataStore
+            fields = dataclasses.fields(command)
+            value = float(getattr(command, fields[0].name, 1)) if fields else 1.0
+            self.datastore.write(ds_key, value)
+            logger.info(
+                "CommandReceiverTask: %s → %s = %s", type(command).__name__, ds_key, value
+            )
+
+            # LAUNCH_OK: reject immediately if not in ARMED stage
+            if ds_key == "command.launch_ok":
+                from tasks.flight_stage_task import STAGE_ARMED  # local import to avoid circular
+                stage = int(self.datastore.read("event.flight_stage", default=0))
+                if stage != STAGE_ARMED:
+                    status = ACK_REJECTED
+                    logger.warning(
+                        "CommandReceiverTask: LAUNCH_OK rejected — stage is %d, expected %d (ARMED)",
+                        stage, STAGE_ARMED,
+                    )
+        else:
+            # No DataStore key — command is acknowledged at the transport layer only (e.g. PING)
+            logger.info("CommandReceiverTask: %s received (no DataStore key)", type(command).__name__)
 
         ack = AckPacket(cmd_id=cmd_id, cmd_seq=cmd_seq, status=status)
         ack_frame = self._serializer.pack(ack, seq=self._ack_seq)

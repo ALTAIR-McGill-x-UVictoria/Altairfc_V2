@@ -47,6 +47,7 @@ import telemetry.packets.ack           # noqa: F401
 # Import command modules so their @register decorators populate command_registry
 import telemetry.commands.arm          # noqa: F401
 import telemetry.commands.launch_ok    # noqa: F401
+import telemetry.commands.ping         # noqa: F401
 
 from tasks.mavlink_task import MavlinkTask
 from tasks.command_receiver_task import CommandReceiverTask
