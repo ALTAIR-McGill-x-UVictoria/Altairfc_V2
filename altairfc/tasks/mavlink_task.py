@@ -11,8 +11,10 @@ from core.task_base import BaseTask
 
 logger = logging.getLogger(__name__)
 
-# MAVLink message types this task subscribes to
-_SUBSCRIBED_TYPES = ("ATTITUDE", "GLOBAL_POSITION_INT", "SCALED_PRESSURE", "VFR_HUD")
+# MAVLink message types this task subscribes to.
+# GPS_RAW_INT is used instead of GLOBAL_POSITION_INT — PX4 streams it by default.
+# LOCAL_POSITION_NED provides relative altitude (above home) since GPS_RAW_INT omits it.
+_SUBSCRIBED_TYPES = ("ATTITUDE", "GPS_RAW_INT", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
 
 
 class MavlinkTask(BaseTask):
@@ -30,11 +32,11 @@ class MavlinkTask(BaseTask):
         mavlink.attitude.rollspeed   (float, rad/s)
         mavlink.attitude.pitchspeed  (float, rad/s)
         mavlink.attitude.yawspeed    (float, rad/s)
-        mavlink.gps.lat              (float, deg)   — from GLOBAL_POSITION_INT
+        mavlink.gps.lat              (float, deg)   — from GPS_RAW_INT
         mavlink.gps.lon              (float, deg)
         mavlink.gps.alt              (float, m)     — MSL altitude
-        mavlink.gps.relative_alt     (float, m)     — above home
-        mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360
+        mavlink.gps.relative_alt     (float, m)     — above home, from LOCAL_POSITION_NED (-z)
+        mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360, from GPS_RAW_INT
         mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
         mavlink.environment.press_diff   (float, hPa)
         mavlink.environment.temperature  (float, °C)   — centidegrees converted
@@ -99,9 +101,10 @@ class MavlinkTask(BaseTask):
         # (message_id, interval_us)
         requests = [
             (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,            20_000),   # 50 Hz
-            (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200_000),  #  5 Hz
-            (mavutil.mavlink.MAVLINK_MSG_ID_SCALED_PRESSURE,     200_000),  #  5 Hz
-            (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD,             200_000),  #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT,        200_000),   #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 200_000),   #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_SCALED_PRESSURE,    200_000),   #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD,            200_000),   #  5 Hz
         ]
         for msg_id, interval_us in requests:
             self._master.mav.command_long_send(
@@ -140,13 +143,16 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.attitude.pitchspeed", msg.pitchspeed)
             self.datastore.write("mavlink.attitude.yawspeed",   msg.yawspeed)
 
-        elif msg_type == "GLOBAL_POSITION_INT":
-            # lat/lon are in 1e-7 degrees, alt/relative_alt in mm, hdg in cdeg
-            self.datastore.write("mavlink.gps.lat",          msg.lat          / 1e7)
-            self.datastore.write("mavlink.gps.lon",          msg.lon          / 1e7)
-            self.datastore.write("mavlink.gps.alt",          msg.alt          / 1e3)
-            self.datastore.write("mavlink.gps.relative_alt", msg.relative_alt / 1e3)
-            self.datastore.write("mavlink.gps.hdg",          msg.hdg          / 1e2)
+        elif msg_type == "GPS_RAW_INT":
+            # lat/lon in 1e-7 deg, alt in mm, cog (course over ground) in cdeg
+            self.datastore.write("mavlink.gps.lat", msg.lat / 1e7)
+            self.datastore.write("mavlink.gps.lon", msg.lon / 1e7)
+            self.datastore.write("mavlink.gps.alt", msg.alt / 1e3)
+            self.datastore.write("mavlink.gps.hdg", msg.cog / 1e2)
+
+        elif msg_type == "LOCAL_POSITION_NED":
+            # NED frame: z is positive downward, so relative_alt = -z
+            self.datastore.write("mavlink.gps.relative_alt", -msg.z)
 
         elif msg_type == "SCALED_PRESSURE":
             self.datastore.write("mavlink.environment.press_abs",   msg.press_abs)
