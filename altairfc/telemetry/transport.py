@@ -20,7 +20,7 @@ class SerialTransport:
     This prevents TelemetryTask from blocking on a slow serial port.
     """
 
-    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 64) -> None:
+    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 256) -> None:
         self.port = port
         self.baud = baud
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=write_queue_maxsize)
@@ -28,7 +28,7 @@ class SerialTransport:
         self._writer_thread: threading.Thread | None = None
 
     def open(self) -> None:
-        self._serial = serial.Serial(self.port, self.baud, timeout=1.0)
+        self._serial = serial.Serial(self.port, self.baud, timeout=1.0, rtscts=True)
         self._writer_thread = threading.Thread(
             target=self._writer_loop,
             name="telemetry-transport-writer",
@@ -53,11 +53,17 @@ class SerialTransport:
 
     def _writer_loop(self) -> None:
         assert self._serial is not None
+        logger.debug("Telemetry writer loop started")
         while True:
             item = self._queue.get()
             if item is _SENTINEL:
                 break
-            try:
-                self._serial.write(item)
-            except serial.SerialException:
-                logger.exception("SerialTransport write error")
+            if isinstance(item, bytes):
+                logger.debug("Writing telemetry frame (%d bytes)", len(item))
+                try:
+                    self._serial.write(item)
+                    logger.debug("Wrote telemetry frame successfully")
+                except serial.SerialException:
+                    logger.exception("SerialTransport write error")
+            else:
+                logger.warning("Unexpected item in queue: %s", type(item))
