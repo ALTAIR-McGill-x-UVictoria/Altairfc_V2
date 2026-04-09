@@ -52,7 +52,6 @@ import telemetry.commands.ping         # noqa: F401
 from tasks.mavlink_task import MavlinkTask
 from tasks.command_receiver_task import CommandReceiverTask
 from tasks.flight_stage_task import FlightStageTask
-from tasks.vesc_task import VescTask
 from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
 from tasks.control_task import ControlTask
@@ -116,6 +115,7 @@ def main() -> None:
     scheduler.register(
         ControlTask(
             name="control",
+            period_s=config.tasks["control"].period_s,
             datastore=datastore,
             rw_vesc_port=config.motors["reaction_wheel"].port,
         )

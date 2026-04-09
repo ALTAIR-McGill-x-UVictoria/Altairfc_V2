@@ -14,6 +14,10 @@ period_s = 0.02   # 50 Hz
 enabled = true
 period_s = 0.2    # 5 Hz
 
+[tasks.control]
+enabled = false
+period_s = 0.1    # 10 Hz
+
 [tasks.photodiode]
 enabled = false
 period_s = 0.01   # 100 Hz
