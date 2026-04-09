@@ -70,6 +70,15 @@ class SystemConfig:
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
+
+        tasks: dict[str, TaskConfig] = {}
+        for name, cfg in data.get("tasks", {}).items():
+            tasks[name] = TaskConfig(
+                name=name,
+                enabled=cfg.get("enabled", False),
+                period_s=cfg.get("period_s", 1.0),
+                extra={k: v for k, v in cfg.items() if k not in ("enabled", "period_s")},
+            )
         motors = SerialPortConfig(**data["motors"])
 
         fs_raw = data.get("flight_stage", {})
