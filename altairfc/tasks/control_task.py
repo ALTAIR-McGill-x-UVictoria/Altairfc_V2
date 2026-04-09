@@ -25,7 +25,7 @@ class ControlTask(BaseTask):
         self.rw_motor = VESCObject(self._rw_vesc_port.port)
 
     def execute(self) -> None:
-        self.rw_motor.set_rpm(60)
+        self.rw_motor.set_current(1000)
 
     def teardown(self) -> None:
-        self.rw_motor.set_rpm(0)
+        self.rw_motor.set_current(0)
