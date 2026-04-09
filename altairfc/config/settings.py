@@ -57,7 +57,6 @@ class FlightStageConfig:
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
-    vesc: SerialPortConfig
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
@@ -70,7 +69,6 @@ class SystemConfig:
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
-        vesc = SerialPortConfig(**data["vesc"])
 
         tasks: dict[str, TaskConfig] = {}
         for name, cfg in data.get("tasks", {}).items():
@@ -99,7 +97,6 @@ class SystemConfig:
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
-            vesc=vesc,
             tasks=tasks,
             flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),
