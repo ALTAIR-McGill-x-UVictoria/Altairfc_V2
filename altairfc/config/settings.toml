@@ -6,10 +6,6 @@ baud = 115200
 port = "auto"   # auto-detects CP210x (LR-900p); set explicitly if ambiguous e.g. "/dev/ttyUSB0"
 baud = 57600
 
-[vesc]
-port = "/dev/ttyUSB1"
-baud = 115200
-
 [tasks.mavlink]
 enabled = true
 period_s = 0.02   # 50 Hz
@@ -58,3 +54,7 @@ monitor_interval_s = 5.0
 latitude = 45.5400
 longitude = -73.5800
 altitude = 55.0
+
+[controls.reaction_wheel]
+port = "/dev/ttyACM0"
+period_s = 5

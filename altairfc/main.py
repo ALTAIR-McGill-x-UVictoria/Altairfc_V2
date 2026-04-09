@@ -55,6 +55,7 @@ from tasks.flight_stage_task import FlightStageTask
 from tasks.vesc_task import VescTask
 from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
+from tasks.control_task import ControlTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
 
@@ -113,11 +114,11 @@ def main() -> None:
     )
 
     scheduler.register(
-        VescTask(
-            name="vesc",
-            period_s=config.tasks["vesc"].period_s,
+        ControlTask(
+            name="control",
+            period_s=config.controls["reaction_wheel"].period_s,
             datastore=datastore,
-            port_config=config.vesc,
+            rw_vesc_port=config.reaction_wheel.port,
         )
     )
 

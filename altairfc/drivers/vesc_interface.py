@@ -7,6 +7,7 @@ import serial
 class VESCObject:
     def __init__(self, port):
         self.port = serial.Serial(port, 115200, timeout=0.1)
+        self.buffer = b""
 
     def set_rpm(self, rpm):
         pkt = encode(SetRPM(rpm))
@@ -20,10 +21,20 @@ class VESCObject:
         pkt = encode(SetCurrentBrake(brake_current))
         self.port.write(pkt)
 
-    def get_data(self):
+    def get_data(self, timeout = 0.02):
         pkt = encode_request(GetValues)
         self.port.write(pkt)
-        raw = ser.read(512)
-        msg, consumed = decode(raw)
-        if msg:
-            return msg
+
+        t0 = time.perf_counter()
+        while time.perf_counter() - t0 < timeout: # Wait for
+            chunk = self.port.read(512)
+            if chunk:
+                self.buffer += chunk
+            msg, consumed = decode(self.buffer)
+            if consumed > 0:
+                self.buffer = self.buffer[consumed:]
+
+            if msg is not None:
+                return msg
+        return None
+
