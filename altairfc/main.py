@@ -117,7 +117,7 @@ def main() -> None:
             name="control",
             period_s=config.tasks["control"].period_s,
             datastore=datastore,
-            rw_vesc_port=config.motors["reaction_wheel"].port,
+            rw_vesc_port=config.reaction_wheel.port,
         )
     )
 
