@@ -73,6 +73,15 @@ def main() -> None:
     # Register tasks — scheduler.register() silently skips disabled tasks
     # ------------------------------------------------------------------
     scheduler.register(
+        ControlTask(
+            name="control",
+            period_s=config.tasks["control"].period_s,
+            datastore=datastore,
+            rw_vesc_port=config.reaction_wheel,
+        )
+    )
+    
+    scheduler.register(
         MavlinkTask(
             name="mavlink",
             period_s=config.tasks["mavlink"].period_s,
@@ -109,15 +118,6 @@ def main() -> None:
             period_s=config.tasks["flight_stage"].period_s,
             datastore=datastore,
             config=config.flight_stage,
-        )
-    )
-
-    scheduler.register(
-        ControlTask(
-            name="control",
-            period_s=config.tasks["control"].period_s,
-            datastore=datastore,
-            rw_vesc_port=config.reaction_wheel,
         )
     )
 
