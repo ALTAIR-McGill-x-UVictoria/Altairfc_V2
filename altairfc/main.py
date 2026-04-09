@@ -116,9 +116,8 @@ def main() -> None:
     scheduler.register(
         ControlTask(
             name="control",
-            period_s=config.controls["reaction_wheel"].period_s,
             datastore=datastore,
-            rw_vesc_port=config.reaction_wheel.port,
+            rw_vesc_port=config.motors["reaction_wheel"].port,
         )
     )
 

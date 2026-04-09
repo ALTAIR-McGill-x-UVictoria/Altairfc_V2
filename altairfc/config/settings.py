@@ -57,7 +57,7 @@ class FlightStageConfig:
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
-    vesc: SerialPortConfig
+    motors: SerialPortConfig
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
@@ -70,16 +70,7 @@ class SystemConfig:
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
-        vesc = SerialPortConfig(**data["vesc"])
-
-        tasks: dict[str, TaskConfig] = {}
-        for name, cfg in data.get("tasks", {}).items():
-            tasks[name] = TaskConfig(
-                name=name,
-                enabled=cfg.get("enabled", False),
-                period_s=cfg.get("period_s", 1.0),
-                extra={k: v for k, v in cfg.items() if k not in ("enabled", "period_s")},
-            )
+        motors = SerialPortConfig(**data["motors"])
 
         fs_raw = data.get("flight_stage", {})
         flight_stage = FlightStageConfig(
@@ -95,11 +86,12 @@ class SystemConfig:
             termination_confirm_window_s=fs_raw.get("termination_confirm_window_s", 30.0),
         )
 
+
         system = data.get("system", {})
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
-            vesc=vesc,
+            motors=motors,
             tasks=tasks,
             flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),
