@@ -24,6 +24,13 @@ def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig":
         port = detected
     return SerialPortConfig(port=port, baud=cfg["baud"])
 
+@dataclass
+class ControllerConfig:
+    kp: float
+    ki: float
+    kd: float
+    max: float
+    min: float
 
 @dataclass
 class SerialPortConfig:
@@ -57,7 +64,10 @@ class FlightStageConfig:
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
-    reaction_wheel: SerialPortConfig
+    wheel_motor: SerialPortConfig
+    momentum_motor: SerialPortConfig
+    rw_controller: ControllerConfig
+    mm_controller: ControllerConfig
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
@@ -70,7 +80,10 @@ class SystemConfig:
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
-        reaction_wheel = SerialPortConfig(**data["reaction_wheel"]) 
+        wheel_motor = SerialPortConfig(**data["rw_esc"]) 
+        momentum_motor = SerialPortConfig(**data["mm_esc"])
+        rw_controller = ControllerConfig(**data["rw_controller"])
+        mm_controller = ControllerConfig(**data["mm_controller"])
 
         tasks: dict[str, TaskConfig] = {}
         for name, cfg in data.get("tasks", {}).items():
@@ -100,7 +113,10 @@ class SystemConfig:
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
-            reaction_wheel=reaction_wheel,
+            wheel_motor=wheel_motor,
+            momentum_motor=momentum_motor,
+            rw_controller=rw_controller,
+            mm_controller=mm_controller,
             tasks=tasks,
             flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),

@@ -54,7 +54,9 @@ from tasks.command_receiver_task import CommandReceiverTask
 from tasks.flight_stage_task import FlightStageTask
 from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
-from tasks.control_task import ControlTask
+from tasks.vesc_task import VescTask
+from tasks.rw_task import RWTask
+from tasks.mm_task import MMTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
 
@@ -73,15 +75,6 @@ def main() -> None:
     # Register tasks — scheduler.register() silently skips disabled tasks
     # ------------------------------------------------------------------
     scheduler.register(
-        ControlTask(
-            name="control",
-            period_s=config.tasks["control"].period_s,
-            datastore=datastore,
-            rw_vesc_port=config.reaction_wheel,
-        )
-    )
-    
-    scheduler.register(
         MavlinkTask(
             name="mavlink",
             period_s=config.tasks["mavlink"].period_s,
@@ -89,6 +82,36 @@ def main() -> None:
             port_config=config.mavlink,
         )
     )
+
+    scheduler.register(
+        VescTask(
+            name="vesc",
+            period_s=config.tasks["vesc"].period_s,
+            datastore=datastore,
+            port_config=config.rw_esc,
+        )
+    )
+
+    scheduler.register(
+        RWTask(
+            name="reaction_wheel",
+            period_s=config.tasks["rw_control"].period_s,
+            datastore=datastore,
+            vesc_port=config.rw_esc,
+            controller_config=config.controller["reaction_wheel"],
+        )
+    )
+
+    scheduler.register(
+        MMTask(
+            name="momentum_management",
+            period_s=config.tasks["mm_control"].period_s,
+            datastore=datastore,
+            vesc_port=config.mm_esc,
+            controller_config=config.controller["momentum_management"],
+        )
+    )
+
 
     telemetry_transport = SerialTransport(
         port=config.telemetry.port,

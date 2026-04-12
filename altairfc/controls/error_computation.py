@@ -5,6 +5,7 @@ from scipy.spatial.transform import Rotation as R
 
 def compute_error(attitude_q: list[float,float,float,float], gps_coords: list[float,float,float]):
     # VERY IMPORTANT TO MAKE SURE QUATERNION IS FORMATTED AS [x, y, z, w].
+    # GPS must be formatted as [lat, lon,alt]
     with open("settings.toml", "rb") as f:
         settings = tomllib.load(f)
     gs = settings["ground_station"]

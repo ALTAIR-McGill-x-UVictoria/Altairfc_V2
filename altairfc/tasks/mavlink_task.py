@@ -102,6 +102,7 @@ class MavlinkTask(BaseTask):
         # (message_id, interval_us)
         requests = [
             (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,            20_000),   # 50 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION, 20_000),   # 50 Hz 
             (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT,        200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_SCALED_PRESSURE,    200_000),   #  5 Hz
@@ -150,6 +151,12 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.attitude.pitchspeed", f(msg.pitchspeed))
             self.datastore.write("mavlink.attitude.yawspeed",   f(msg.yawspeed))
 
+        elif msg_type == "ATTITUDE_QUATERNION":
+            self.datastore.write("mavlink.quaternion.w", f(msg.q1))
+            self.datastore.write("mavlink.quaternion.x", f(msg.q2))
+            self.datastore.write("mavlink.quaternion.y", f(msg.q3))
+            self.datastore.write("mavlink.quaternion.z", f(msg.q4))
+            
         elif msg_type == "GPS_RAW_INT":
             # lat/lon in 1e-7 deg, alt in mm, cog (course over ground) in cdeg
             self.datastore.write("mavlink.gps.lat", f(msg.lat / 1e7))

@@ -10,13 +10,21 @@ baud = 57600
 enabled = true
 period_s = 0.02   # 50 Hz
 
+[tasks.vesc]
+enabled = true
+period_s = 0.02 # 50 Hz
+
 [tasks.telemetry]
 enabled = true
 period_s = 0.2    # 5 Hz
 
-[tasks.control]
+[tasks.rw_control]
 enabled = true
-period_s = 5    # 10 Hz
+period_s = 0.05    # 20 Hz
+
+[tasks.mm_control]
+enabled = true
+period_s = 0.5    # 2 Hz
 
 [tasks.photodiode]
 enabled = false
@@ -55,6 +63,24 @@ latitude = 45.5400
 longitude = -73.5800
 altitude = 55.0
 
-[reaction_wheel]
+[rw_esc]
 port = "/dev/ttyACM0"
 baud = 115200
+
+[mm_esc]
+port = "/dev/ttyACM0"
+baud = 115200
+
+[controller.reaction_wheel]
+Kp = 12740.0
+Kd = 1092.0
+Ki = 0.0
+max_rpm = 3400.0
+min_rpm = 0.0
+
+[controller.momentum_management]
+Kp = 0.005
+Kd = 0.02
+Ki = 0.0
+max_current = 5.8
+min_current = -5.8
