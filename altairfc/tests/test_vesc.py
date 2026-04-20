@@ -6,8 +6,6 @@ DUTY = 0.1
 DURATION = 10
 
 with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False, timeout=0.5) as motor:
-    time.sleep(0.5)
-
     stop_event = threading.Event()
 
     def keepalive():
