@@ -1,6 +1,6 @@
 from pyvesc import VESC
 
-with VESC(serial_port='/dev/ttyACM0', baudrate=115200, start_heartbeat=False, timeout=0.5) as motor:
+with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False) as motor:
     # Read telemetry
     meas = motor.get_measurements()
     print(f"RPM: {meas.rpm}, Voltage: {meas.v_in}V, Current: {meas.avg_motor_current}A")
