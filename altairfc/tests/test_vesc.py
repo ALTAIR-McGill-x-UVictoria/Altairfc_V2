@@ -1,7 +1,8 @@
 import time
 from pyvesc import VESC
 
-with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False) as motor:
+with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False, timeout=0.5) as motor:
+    time.sleep(0.5)
     for _ in range(10):
         motor.set_duty_cycle(0.1)
         time.sleep(1)
