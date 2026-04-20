@@ -1,11 +1,10 @@
+import time
 from pyvesc import VESC
 
-with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False) as motor:
-    # Read telemetry
-    meas = motor.get_measurements()
-    print(f"RPM: {meas.rpm}, Voltage: {meas.v_in}V, Current: {meas.avg_motor_current}A")
-
-    # Command modes (pick one)
-    motor.set_duty_cycle(0.1)   # 10% duty — gentle test
-    motor.set_rpm(2000)          # RPM control (requires RPM PID tuned in VESC Tool)
-    motor.set_current(1.0)       # Current control (Amps)
+with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=True) as motor:
+    motor.set_rpm(500)
+    for _ in range(10):
+        time.sleep(1)
+        meas = motor.get_measurements()
+        print(f"RPM: {meas.rpm}, Voltage: {meas.v_in}V, Current: {meas.avg_motor_current}A")
+    motor.set_current(0)
