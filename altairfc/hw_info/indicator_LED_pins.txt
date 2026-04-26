@@ -1,0 +1,8 @@
+Indicator pins for MCP23017
+
+I/O board
+- IND1: 0
+- IND2: 1
+
+Power board
+- IND3: 6
