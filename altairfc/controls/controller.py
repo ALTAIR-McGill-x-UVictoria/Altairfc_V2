@@ -3,9 +3,9 @@ import numpy as np
 
 class Controller:
     def __init__(self, config, period):
-        self.Kp = config.kp
-        self.Kd = config.kd
-        self.Ki = config.ki
+        self.Kp = config.Kp
+        self.Kd = config.Kd
+        self.Ki = config.Ki
         self.max_value = config.max
         self.min_value = config.min
         self.dt = period

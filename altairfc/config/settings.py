@@ -29,6 +29,8 @@ class ControllerConfig:
     Kp: float
     Ki: float
     Kd: float
+    max: float = 0.0
+    min: float = 0.0
 
 @dataclass
 class SerialPortConfig:
@@ -79,10 +81,14 @@ class SystemConfig:
         telemetry = _resolve_serial_port(data["telemetry"])
         rw_esc = SerialPortConfig(**data["rw_esc"])
         mm_esc = SerialPortConfig(**data["mm_esc"])
-        controller = {
-            name: ControllerConfig(**{k: v for k, v in cfg.items() if k in ("Kp", "Ki", "Kd")})
-            for name, cfg in data.get("controller", {}).items()
-        }
+        controller = {}
+        for name, cfg in data.get("controller", {}).items():
+            max_val = cfg.get("max_rpm", cfg.get("max_current", 0.0))
+            min_val = cfg.get("min_rpm", cfg.get("min_current", 0.0))
+            controller[name] = ControllerConfig(
+                Kp=cfg["Kp"], Ki=cfg["Ki"], Kd=cfg["Kd"],
+                max=max_val, min=min_val,
+            )
 
         tasks: dict[str, TaskConfig] = {}
         for name, cfg in data.get("tasks", {}).items():
