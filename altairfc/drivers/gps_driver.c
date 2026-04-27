@@ -239,7 +239,7 @@ int gps_read(int fd, GpsFix *fix)
     int raw_len = 0;
     struct timespec ts = { .tv_sec = 0, .tv_nsec = 10000000L }; /* 10 ms */
 
-    for (int attempt = 0; attempt < 20; attempt++) {
+    for (int attempt = 0; attempt < 60; attempt++) {
         nanosleep(&ts, NULL);
         int avail = ddc_bytes_available(fd);
         if (avail < 0) return -1;
