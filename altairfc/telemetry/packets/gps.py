@@ -10,33 +10,41 @@ from telemetry.registry import FieldMeta, packet_registry
 @dataclass
 class GpsPacket:
     """
-    Fused GPS position from Pixhawk GLOBAL_POSITION_INT.
+    GPS position and status.
     Packet ID: 0x05
-    Payload size: 5 * 4 = 20 bytes
+    Payload size: 3*8 + 4*4 + 3*1 = 43 bytes (padded to 44 by struct alignment)
 
-    Source MAVLink message: GLOBAL_POSITION_INT
-      lat/lon converted from 1e-7 deg -> deg
-      alt/relative_alt converted from mm -> m
-      hdg converted from cdeg -> deg
+    lat/lon/alt_msl sourced from direct MAX-M10M GPS driver ("gps.*" keys).
+    relative_alt sourced from Pixhawk LOCAL_POSITION_NED ("mavlink.gps.relative_alt").
+    speed_ms, heading_deg, fix_type, num_sv sourced from GPS driver.
 
     DataStore keys (read by TelemetryTask):
-        "mavlink.gps.lat"
-        "mavlink.gps.lon"
-        "mavlink.gps.alt"
+        "gps.lat"
+        "gps.lon"
+        "gps.alt_msl"
         "mavlink.gps.relative_alt"
-        "mavlink.gps.hdg"
+        "gps.speed_ms"
+        "gps.heading_deg"
+        "gps.fix_type"
+        "gps.num_sv"
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
-        "lat":          "mavlink.gps.lat",
-        "lon":          "mavlink.gps.lon",
-        "alt":          "mavlink.gps.alt",
+        "lat":          "gps.lat",
+        "lon":          "gps.lon",
+        "alt_msl":      "gps.alt_msl",
         "relative_alt": "mavlink.gps.relative_alt",
-        "hdg":          "mavlink.gps.hdg",
+        "speed_ms":     "gps.speed_ms",
+        "heading_deg":  "gps.heading_deg",
+        "fix_type":     "gps.fix_type",
+        "num_sv":       "gps.num_sv",
     }
 
-    lat:          float = field(default=0.0, metadata=FieldMeta("f", "Latitude",          "deg").as_metadata())
-    lon:          float = field(default=0.0, metadata=FieldMeta("f", "Longitude",         "deg").as_metadata())
-    alt:          float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL",      "m").as_metadata())
-    relative_alt: float = field(default=0.0, metadata=FieldMeta("f", "Altitude AGL",      "m").as_metadata())
-    hdg:          float = field(default=0.0, metadata=FieldMeta("f", "Heading",           "deg").as_metadata())
+    lat:          float = field(default=0.0, metadata=FieldMeta("f", "Latitude",      "deg").as_metadata())
+    lon:          float = field(default=0.0, metadata=FieldMeta("f", "Longitude",     "deg").as_metadata())
+    alt_msl:      float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL",  "m").as_metadata())
+    relative_alt: float = field(default=0.0, metadata=FieldMeta("f", "Altitude AGL",  "m").as_metadata())
+    speed_ms:     float = field(default=0.0, metadata=FieldMeta("f", "Ground speed",  "m/s").as_metadata())
+    heading_deg:  float = field(default=0.0, metadata=FieldMeta("f", "Heading",       "deg").as_metadata())
+    fix_type:     int   = field(default=0,   metadata=FieldMeta("B", "Fix type",      "").as_metadata())
+    num_sv:       int   = field(default=0,   metadata=FieldMeta("B", "Satellites",    "").as_metadata())

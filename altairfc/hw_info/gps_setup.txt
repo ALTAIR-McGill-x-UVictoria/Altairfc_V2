@@ -1,0 +1,77 @@
+MAX-M10M GPS — System Setup (Ubuntu, Raspberry Pi 4B)
+=====================================================
+
+Hardware
+--------
+- GPS module I2C address : 0x42  (u-blox DDC interface on /dev/i2c-1)
+- Time pulse output      : GPIO18 / PCM_CLK  -> /dev/pps0 via pps-gpio overlay
+
+1. Enable pps-gpio kernel overlay
+----------------------------------
+Add to /boot/firmware/config.txt:
+
+    dtoverlay=pps-gpio,gpiopin=18
+
+Reboot after adding.
+
+Verify:
+    ls /dev/pps0          # should exist after reboot
+    sudo ppstest /dev/pps0  # should show 1 Hz pulses when GPS has a fix
+
+2. Install packages
+--------------------
+    sudo apt install gpsd gpsd-clients chrony pps-tools
+
+3. Configure gpsd
+------------------
+Edit /etc/default/gpsd:
+
+    START_DAEMON="true"
+    GPSD_OPTIONS="-n"
+    DEVICES="/dev/i2c-1"
+    USBAUTO="false"
+
+Restart gpsd:
+    sudo systemctl restart gpsd
+    sudo systemctl enable gpsd
+
+Verify gpsd sees the module:
+    cgps -s          # should show position data once GPS has a fix
+    gpsmon           # detailed UBX frame view
+
+4. Configure chrony for PPS discipline
+----------------------------------------
+Add to /etc/chrony/chrony.conf (before any pool/server lines):
+
+    refclock SHM 0 refid GPS  precision 1e-1 offset 0.9999 noselect
+    refclock PPS /dev/pps0 refid PPS  lock GPS  precision 1e-7
+
+The SHM 0 source provides coarse time from gpsd; PPS provides the
+precise 1 Hz edge. "lock GPS" ensures PPS is only used when GPS time
+is valid. "noselect" on GPS prevents it being chosen as the primary
+source on its own (PPS alone is used once locked).
+
+Restart chrony:
+    sudo systemctl restart chrony
+    sudo systemctl enable chrony
+
+Verify:
+    chronyc sources -v
+    # PPS source should show * (selected) with very low offset once locked
+
+5. Flight computer GPS driver
+-------------------------------
+The C driver (altairfc/drivers/gps_driver.c) talks directly to /dev/i2c-1
+independently of gpsd. Both can coexist: the I2C DDC interface allows
+multiple readers (each poll is stateless).
+
+Build on the Pi (run once after deployment):
+    cd altairfc/drivers
+    bash build_gps.sh
+
+Smoke test:
+    cd altairfc
+    python -c "from drivers.gps_driver import GpsDriver; d=GpsDriver(); print(d.read()); d.close()"
+
+The GpsTask writes to DataStore keys "gps.*" at 1 Hz.
+System clock sync (via chrony/PPS) is independent of the task loop.

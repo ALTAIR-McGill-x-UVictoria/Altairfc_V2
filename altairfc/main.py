@@ -49,6 +49,7 @@ import telemetry.commands.arm          # noqa: F401
 import telemetry.commands.launch_ok    # noqa: F401
 import telemetry.commands.ping         # noqa: F401
 
+from tasks.gps_task import GpsTask
 from tasks.mavlink_task import MavlinkTask
 from tasks.command_receiver_task import CommandReceiverTask
 from tasks.flight_stage_task import FlightStageTask
@@ -80,6 +81,14 @@ def main() -> None:
             period_s=config.tasks["mavlink"].period_s,
             datastore=datastore,
             port_config=config.mavlink,
+        )
+    )
+
+    scheduler.register(
+        GpsTask(
+            name="gps",
+            period_s=config.tasks["gps"].period_s,
+            datastore=datastore,
         )
     )
 

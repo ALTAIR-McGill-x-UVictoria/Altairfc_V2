@@ -38,6 +38,10 @@ period_s = 0.1    # 10 Hz
 enabled  = true
 period_s = 0.05   # 20 Hz — drains incoming command frames between telemetry cycles
 
+[tasks.gps]
+enabled  = true
+period_s = 1.0    # 1 Hz — MAX-M10M default output rate
+
 [tasks.flight_stage]
 enabled  = true
 period_s = 0.5    # 2 Hz
