@@ -56,9 +56,11 @@ class TelemetryTask(BaseTask):
             if not keys_map:
                 continue
 
+            field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
             kwargs: dict[str, object] = {}
             for field_name, ds_key in keys_map.items():
-                kwargs[field_name] = self.datastore.read(ds_key, default=0.0)
+                raw = self.datastore.read(ds_key, default=0)
+                kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
 
             try:
                 packet = pkt_class(**kwargs)
