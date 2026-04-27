@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import ClassVar
@@ -16,7 +18,7 @@ class HeartbeatPacket:
     is alive and to carry basic system health metrics.
 
     Packet ID: 0x00
-    Payload size: 2 * 8 + 7 * 4 = 44 bytes
+    Payload size: 2 * 8 + 8 * 4 = 48 bytes
 
     Fields:
         time_unix            — wall-clock UNIX timestamp (float64, s)
@@ -28,6 +30,7 @@ class HeartbeatPacket:
         vesc_connected       — 1.0 if VESC serial link is active, 0.0 otherwise (float32, bool)
         power_connected      — 1.0 if power daughterboard is active, 0.0 otherwise (float32, bool)
         photodiode_connected — 1.0 if photodiode daughterboard is active, 0.0 otherwise (float32, bool)
+        pps_rms_us           — PPS RMS offset from chrony tracking (float32, µs); 0.0 if unavailable
 
     DataStore keys (written by TelemetryTask before packet iteration):
         "system.time_unix"
@@ -39,6 +42,7 @@ class HeartbeatPacket:
         "system.vesc_connected"
         "system.power_connected"
         "system.photodiode_connected"
+        "system.pps_rms_us"
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
@@ -51,6 +55,7 @@ class HeartbeatPacket:
         "vesc_connected":       "system.vesc_connected",
         "power_connected":      "system.power_connected",
         "photodiode_connected": "system.photodiode_connected",
+        "pps_rms_us":           "system.pps_rms_us",
     }
 
     time_unix:            float = field(default=0.0, metadata=FieldMeta("d", "UNIX wall-clock time",       "s").as_metadata())
@@ -62,6 +67,7 @@ class HeartbeatPacket:
     vesc_connected:       float = field(default=0.0, metadata=FieldMeta("f", "VESC link",                 "bool").as_metadata())
     power_connected:      float = field(default=0.0, metadata=FieldMeta("f", "Power board link",          "bool").as_metadata())
     photodiode_connected: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode board link",     "bool").as_metadata())
+    pps_rms_us:           float = field(default=0.0, metadata=FieldMeta("f", "PPS RMS offset",            "us").as_metadata())
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +112,34 @@ def read_mem_used_pct() -> float:
         return 0.0
 
 
+def read_pps_rms_us() -> float:
+    """
+    Queries chronyc for the RMS offset of the PPS refclock and returns it in µs.
+    Runs 'chronyc tracking' and parses the 'RMS offset' line.
+    Returns 0.0 if chrony is unavailable or PPS is not locked.
+    """
+    try:
+        out = subprocess.run(
+            ["chronyc", "tracking"],
+            capture_output=True, text=True, timeout=1.0,
+        ).stdout
+        m = re.search(r"RMS offset\s*:\s*([\d.e+\-]+)\s*(\w+)", out)
+        if not m:
+            return 0.0
+        value, unit = float(m.group(1)), m.group(2)
+        if unit == "us":
+            return value
+        if unit == "ms":
+            return value * 1e3
+        if unit == "ns":
+            return value * 1e-3
+        if unit == "s":
+            return value * 1e6
+        return value
+    except Exception:
+        return 0.0
+
+
 def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
     """
     Returns a dict of system.* DataStore key → value for the current instant.
@@ -117,6 +151,7 @@ def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
         "system.cpu_load_pct":  read_cpu_load(),
         "system.mem_used_pct":  read_mem_used_pct(),
         "system.tasks_running": float(tasks_running),
+        "system.pps_rms_us":    read_pps_rms_us(),
         # system.pixhawk_connected and system.vesc_connected are written by
         # their respective tasks and must not be overwritten here.
     }
