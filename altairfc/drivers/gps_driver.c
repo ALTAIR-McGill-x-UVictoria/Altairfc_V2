@@ -224,7 +224,7 @@ int gps_read(int fd, GpsFix *fix)
     int stale = ddc_bytes_available(fd);
     if (stale < 0) return -1;
     if (stale > 0) {
-        uint8_t discard[512];
+        uint8_t discard[4096];
         int to_flush = stale < (int)sizeof(discard) ? stale : (int)sizeof(discard);
         ddc_read(fd, discard, to_flush);
     }
@@ -239,7 +239,7 @@ int gps_read(int fd, GpsFix *fix)
     int raw_len = 0;
     struct timespec ts = { .tv_sec = 0, .tv_nsec = 10000000L }; /* 10 ms */
 
-    for (int attempt = 0; attempt < 60; attempt++) {
+    for (int attempt = 0; attempt < 100; attempt++) {
         nanosleep(&ts, NULL);
         int avail = ddc_bytes_available(fd);
         if (avail < 0) return -1;
