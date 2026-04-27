@@ -220,13 +220,15 @@ int gps_open(const char *i2c_dev)
  */
 int gps_read(int fd, GpsFix *fix)
 {
-    /* Flush any stale bytes from the DDC buffer before polling */
-    int stale = ddc_bytes_available(fd);
-    if (stale < 0) return -1;
-    if (stale > 0) {
+    /* Flush any stale bytes from the DDC buffer before polling.
+       Two passes: the module may queue more bytes while we flush the first batch. */
+    for (int pass = 0; pass < 2; pass++) {
+        int stale = ddc_bytes_available(fd);
+        if (stale < 0) return -1;
+        if (stale == 0) break;
         uint8_t discard[4096];
         int to_flush = stale < (int)sizeof(discard) ? stale : (int)sizeof(discard);
-        ddc_read(fd, discard, to_flush);
+        if (ddc_read(fd, discard, to_flush) < 0) return -1;
     }
 
     /* Send UBX-NAV-PVT poll */
