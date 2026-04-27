@@ -8,48 +8,43 @@ Hardware
 
 1. Enable pps-gpio kernel overlay
 ----------------------------------
-Add to /boot/firmware/config.txt:
+The dtoverlay line is already configured in /boot/firmware/config.txt:
 
-    dtoverlay=pps-gpio,gpiopin=18
+    dtoverlay=dwc2,dr_mode=peripheral,pps-gpio,gpiopin=18
 
-Reboot after adding.
+The overlay loads correctly and creates a pps@12 device tree node
+(0x12 = GPIO18). However, the pps_gpio kernel module is not loaded
+automatically — it must be explicitly loaded.
 
-Verify:
-    ls /dev/pps0          # should exist after reboot
-    sudo ppstest /dev/pps0  # should show 1 Hz pulses when GPS has a fix
+Load it now:
+    sudo modprobe pps_gpio
+    ls /dev/pps0              # should now exist
+
+Make it load on every boot:
+    echo pps_gpio | sudo tee -a /etc/modules
+
+Verify PPS pulses (requires GPS to have a fix):
+    sudo apt install pps-tools
+    sudo ppstest /dev/pps0    # should show 1 Hz pulses
 
 2. Install packages
 --------------------
     sudo apt install gpsd gpsd-clients chrony pps-tools
 
-3. Configure gpsd
-------------------
-Edit /etc/default/gpsd:
-
-    START_DAEMON="true"
-    GPSD_OPTIONS="-n"
-    DEVICES="/dev/i2c-1"
-    USBAUTO="false"
-
-Restart gpsd:
-    sudo systemctl restart gpsd
-    sudo systemctl enable gpsd
-
-Verify gpsd sees the module:
-    cgps -s          # should show position data once GPS has a fix
-    gpsmon           # detailed UBX frame view
-
-4. Configure chrony for PPS discipline
+3. Configure chrony for PPS discipline
 ----------------------------------------
-Add to /etc/chrony/chrony.conf (before any pool/server lines):
+gpsd is NOT required. The PPS signal on GPIO18 goes directly to /dev/pps0
+and chrony reads it independently. NTP provides the coarse time reference
+(which second the PPS pulse belongs to); PPS provides sub-microsecond
+precision on top of that.
 
-    refclock SHM 0 refid GPS  precision 1e-1 offset 0.9999 noselect
-    refclock PPS /dev/pps0 refid PPS  lock GPS  precision 1e-7
+Add to /etc/chrony/chrony.conf:
 
-The SHM 0 source provides coarse time from gpsd; PPS provides the
-precise 1 Hz edge. "lock GPS" ensures PPS is only used when GPS time
-is valid. "noselect" on GPS prevents it being chosen as the primary
-source on its own (PPS alone is used once locked).
+    pool ntp.ubuntu.com iburst
+    refclock PPS /dev/pps0 refid PPS precision 1e-7
+
+Do not use "lock GPS" — that requires an SHM/gpsd source which is not
+configured here. Chrony uses NTP for coarse lock and PPS for precision.
 
 Restart chrony:
     sudo systemctl restart chrony
@@ -58,6 +53,7 @@ Restart chrony:
 Verify:
     chronyc sources -v
     # PPS source should show * (selected) with very low offset once locked
+    # This requires: GPS has a fix, pps_gpio module loaded, NTP reachable
 
 5. Flight computer GPS driver
 -------------------------------

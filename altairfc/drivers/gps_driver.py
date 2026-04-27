@@ -6,7 +6,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_SO_PATH = Path(__file__).parent / "gps_driver.so"
+_SO_PATH = Path(__file__).parent / "libgps_driver.so"
 
 
 class GpsFix(ctypes.Structure):
