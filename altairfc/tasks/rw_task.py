@@ -28,36 +28,37 @@ class RWTask(BaseTask):
         
 
     def setup(self) -> None:
+        self.motor = None
         try:
             self.motor = VESCObject(self._vesc_port)
             logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
-
         except Exception as e:
             logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
+            return
 
         logger.info("Bringing reaction wheel up to speed")
         yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
-        self.motor.set_rpm(1700) 
+        self.motor.set_rpm(1700)
         if yaw_rate < 0.1:
             return
 
-
     def execute(self) -> None:
+        if self.motor is None:
+            return
         quat = [
-            float(self.datastore.read("mavlink.quaternion.x")),
-            float(self.datastore.read("mavlink.quaternion.y")),
-            float(self.datastore.read("mavlink.quaternion.z")),
-            float(self.datastore.read("mavlink.quaternion.w"))
+            float(self.datastore.read("mavlink.quaternion.x", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.y", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.z", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.w", default=1.0)),
         ]
         pos = [
-            float(self.datastore.read("mavlink.gps.lat")),
-            float(self.datastore.read("mavlink.gps.lon")),
-            float(self.datastore.read("mavlink.gps.alt"))
+            float(self.datastore.read("mavlink.gps.lat", default=0.0)),
+            float(self.datastore.read("mavlink.gps.lon", default=0.0)),
+            float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
         az_err, _ = compute_error(quat, pos)
         control_signal = self.controller.output(az_err) + 1700
         self.motor.set_rpm(control_signal)
-
 
     def teardown(self) -> None:
         if self.motor is not None:

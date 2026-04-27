@@ -28,28 +28,25 @@ class MMTask(BaseTask):
         
 
     def setup(self) -> None:
+        self.motor = None
         try:
             self.motor = VESCObject(self._vesc_port)
             logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
-
         except Exception as e:
             logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
+            return
 
-        # Start momentum management by braking payload and bringing rotation rate to stable threshold before starting control sequence
         logger.info("Braking payload")
         yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
         while yaw_rate > 0.1:
-            self.motor.set_brake_current(1650) # 3.3A estimated for 0.4Nm braking torque based on flight data
-        return
-
-
+            self.motor.set_brake_current(1650)
 
     def execute(self) -> None:
-        motor_speed_err = float(self.datastore.read("rw.motor_speed")) - 1700
+        if self.motor is None:
+            return
+        motor_speed_err = float(self.datastore.read("rw.motor_speed", default=0.0)) - 1700
         control_signal = self.controller.output(motor_speed_err)
         self.motor.set_current(control_signal)
-
-
 
     def teardown(self) -> None:
         if self.motor is not None:
