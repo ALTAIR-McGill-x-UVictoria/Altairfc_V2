@@ -36,7 +36,7 @@ class RWTask(BaseTask):
             logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
 
         logger.info("Bringing reaction wheel up to speed")
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed"))
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
         self.motor.set_rpm(1700) 
         if yaw_rate < 0.1:
             return

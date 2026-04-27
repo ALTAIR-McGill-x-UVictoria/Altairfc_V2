@@ -33,6 +33,8 @@ class VescTask(BaseTask):
             logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
 
     def execute(self) -> None:
+        if not hasattr(self, 'vesc'):
+            return
         data = self.vesc.get_data()
         if data:
             # Write all GetValues fields into the datastore under the 'vesc.' namespace

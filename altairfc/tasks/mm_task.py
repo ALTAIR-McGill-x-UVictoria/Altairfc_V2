@@ -37,7 +37,7 @@ class MMTask(BaseTask):
 
         # Start momentum management by braking payload and bringing rotation rate to stable threshold before starting control sequence
         logger.info("Braking payload")
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed"))
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
         while yaw_rate > 0.1:
             self.motor.set_brake_current(1650) # 3.3A estimated for 0.4Nm braking torque based on flight data
         return
