@@ -26,11 +26,9 @@ def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig":
 
 @dataclass
 class ControllerConfig:
-    kp: float
-    ki: float
-    kd: float
-    max: float
-    min: float
+    Kp: float
+    Ki: float
+    Kd: float
 
 @dataclass
 class SerialPortConfig:
@@ -64,10 +62,9 @@ class FlightStageConfig:
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
-    wheel_motor: SerialPortConfig
-    momentum_motor: SerialPortConfig
-    rw_controller: ControllerConfig
-    mm_controller: ControllerConfig
+    rw_esc: SerialPortConfig
+    mm_esc: SerialPortConfig
+    controller: dict[str, ControllerConfig]
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
@@ -80,10 +77,12 @@ class SystemConfig:
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
-        wheel_motor = SerialPortConfig(**data["rw_esc"]) 
-        momentum_motor = SerialPortConfig(**data["mm_esc"])
-        rw_controller = ControllerConfig(**data["rw_controller"])
-        mm_controller = ControllerConfig(**data["mm_controller"])
+        rw_esc = SerialPortConfig(**data["rw_esc"])
+        mm_esc = SerialPortConfig(**data["mm_esc"])
+        controller = {
+            name: ControllerConfig(**{k: v for k, v in cfg.items() if k in ("Kp", "Ki", "Kd")})
+            for name, cfg in data.get("controller", {}).items()
+        }
 
         tasks: dict[str, TaskConfig] = {}
         for name, cfg in data.get("tasks", {}).items():
@@ -113,10 +112,9 @@ class SystemConfig:
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
-            wheel_motor=wheel_motor,
-            momentum_motor=momentum_motor,
-            rw_controller=rw_controller,
-            mm_controller=mm_controller,
+            rw_esc=rw_esc,
+            mm_esc=mm_esc,
+            controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),
