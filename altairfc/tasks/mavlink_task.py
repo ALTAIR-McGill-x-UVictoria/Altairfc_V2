@@ -85,7 +85,7 @@ class MavlinkTask(BaseTask):
                 self._request_message_rates()
                 return  # connected successfully
             except Exception as e:
-                logger.warning(
+                logger.debug(
                     "MavlinkTask: connection failed (%s) — retrying in %.0fs",
                     e,
                     self._connect_retry_s,
