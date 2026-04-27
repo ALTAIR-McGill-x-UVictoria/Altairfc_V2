@@ -1,6 +1,6 @@
-from pyvesc.messages.setters import SetDutyCycle, SetRPM, SetCurrent, SetCurrentBrake, SetPosition, SetRotorPositionMode
-from pyvesc.interface import decode, encode, encode_request
-from pyvesc.messages.getters import GetValues
+from pyvesc.VESC.messages.setters import SetDutyCycle, SetRPM, SetCurrent, SetCurrentBrake, SetPosition, SetRotorPositionMode
+from pyvesc.protocol.interface import decode, encode, encode_request
+from pyvesc.VESC.messages.getters import GetValues
 import time
 import serial
 
