@@ -38,15 +38,18 @@ class MMTask(BaseTask):
             return
 
         logger.info("Braking payload")
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
-        while yaw_rate > 0.1:
+        while not self._stop_event.is_set():
+            yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
+            motor_rpm = float(self.datastore.read("rw.rpm", default=0.0))
             self.motor.set_brake_current(1650)
             time.sleep(0.05)
+            if yaw_rate < 0.1 and motor_rpm >= 1700:
+                break
 
     def execute(self) -> None:
         if self.motor is None:
             return
-        motor_speed_err = float(self.datastore.read("rw.motor_speed", default=0.0)) - 1700
+        motor_speed_err = float(self.datastore.read("rw.rpm", default=0.0)) - 1700
         control_signal = self.controller.output(motor_speed_err)
         self.motor.set_current(control_signal)
 

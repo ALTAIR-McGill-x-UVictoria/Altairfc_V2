@@ -11,7 +11,7 @@ enabled = true
 period_s = 0.02   # 50 Hz
 
 [tasks.vesc]
-enabled = true
+enabled = false
 period_s = 0.02 # 50 Hz
 
 [tasks.telemetry]

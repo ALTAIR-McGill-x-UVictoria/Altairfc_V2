@@ -1,17 +1,21 @@
+from pathlib import Path
+
 import numpy as np
 import pymap3d as pm
 import tomllib
 from scipy.spatial.transform import Rotation as R
 
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+with CONFIG_PATH.open("rb") as f:
+    GROUND_STATION = tomllib.load(f)["ground_station"]
+
 def compute_error(attitude_q: list[float,float,float,float], gps_coords: list[float,float,float]):
     # VERY IMPORTANT TO MAKE SURE QUATERNION IS FORMATTED AS [x, y, z, w].
     # GPS must be formatted as [lat, lon,alt]
-    with open("settings.toml", "rb") as f:
-        settings = tomllib.load(f)
-    gs = settings["ground_station"]
-    gs_lat = gs["latitude"]
-    gs_lon = gs["longitude"]
-    gs_alt = gs["altitude"]
+    
+    gs_lat = GROUND_STATION["latitude"]
+    gs_lon = GROUND_STATION["longitude"]
+    gs_alt = GROUND_STATION["altitude"]
 
     x_gs, y_gs, z_gs = pm.geodetic2ecef(gs_lat, gs_lon, gs_alt)
     r_gs = np.array([x_gs, y_gs, z_gs])

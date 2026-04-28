@@ -38,15 +38,45 @@ class RWTask(BaseTask):
             return
 
         logger.info("Bringing reaction wheel up to speed")
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
-        
         self._hold(self.motor.set_rpm, 1700, duration=5.0)
-        if yaw_rate < 0.1:
-            return
+        while not self._stop_event.is_set():
+            self.motor.set_rpm(1700)
+            yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
+            if yaw_rate < 0.1:
+                break
+            time.sleep(0.05)
 
     def execute(self) -> None:
         if self.motor is None:
             return
+        self._store()
+        quat, pos = self._read()
+        az_err, _ = compute_error(quat, pos)
+        control_signal = self.controller.output(az_err) + 1700
+        self.motor.set_rpm(control_signal)
+
+    def teardown(self) -> None:
+        if self.motor is not None:
+            self.motor.set_rpm(0)
+
+    def _store(self):
+        data = self.motor.get_data()
+        if data:
+            # Write all GetValues fields into the datastore under the 'vesc.' namespace
+            fields = [
+                'temp_mos1', 'temp_mos2', 'temp_mos3', 'temp_mos4', 'temp_mos5', 'temp_mos6',
+                'temp_pcb', 'current_motor', 'current_in', 'duty_now', 'rpm', 'v_in',
+                'amp_hours', 'amp_hours_charged', 'watt_hours', 'watt_hours_charged',
+                'tachometer', 'tachometer_abs', 'mc_fault_code',
+            ]
+            for f in fields:
+                try:
+                    val = getattr(data, f, None)
+                except Exception:
+                    val = None
+                self.datastore.write(f"rw.{f}", val)
+
+    def _read(self):
         quat = [
             float(self.datastore.read("mavlink.quaternion.x", default=0.0)),
             float(self.datastore.read("mavlink.quaternion.y", default=0.0)),
@@ -58,16 +88,10 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        az_err, _ = compute_error(quat, pos)
-        control_signal = self.controller.output(az_err) + 1700
-        self.motor.set_rpm(control_signal)
+        return quat, pos
 
-    def teardown(self) -> None:
-        if self.motor is not None:
-            self.motor.set_rpm(0)
-
-    def _hold(self, fn, value, suration, dt = 0.05):
+    def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
-        while time.time() - start_time < suration:
+        while time.time() - start_time < duration:
             fn(value)
             time.sleep(dt)
