@@ -40,6 +40,7 @@ class RWTask(BaseTask):
         logger.info("Bringing reaction wheel up to speed")
         self._hold(self.motor.set_rpm, 1700, duration=5.0)
         while not self._stop_event.is_set():
+            self._store()
             self.motor.set_rpm(1700)
             yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
             if yaw_rate < 0.1:
