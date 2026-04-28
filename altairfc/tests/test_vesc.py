@@ -2,7 +2,7 @@ import time
 import threading
 from pyvesc import VESC
 
-DUTY = 0.1
+DUTY = 1000
 DURATION = 10
 
 with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False, timeout=0.5) as motor:
@@ -10,7 +10,7 @@ with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False, ti
 
     def keepalive():
         while not stop_event.is_set():
-            motor.set_duty_cycle(DUTY)
+            motor.set_rpm(DUTY)
             time.sleep(0.05)
 
     t = threading.Thread(target=keepalive, daemon=True)
@@ -18,9 +18,9 @@ with VESC(serial_port='/dev/ttyACM0', baudrate=500000, start_heartbeat=False, ti
 
     for _ in range(DURATION):
         time.sleep(1)
-        meas = motor.get_measurements()
+        meas = motor.get_data()
         print(f"RPM: {meas.rpm}, Voltage: {meas.v_in}V, Current: {meas.avg_motor_current}A")
 
     stop_event.set()
     t.join()
-    motor.set_current(0)
+    motor.set_rpm(0)

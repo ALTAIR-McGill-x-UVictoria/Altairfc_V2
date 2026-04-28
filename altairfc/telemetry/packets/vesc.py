@@ -14,19 +14,19 @@ class VescPacket:
     Packet ID: 0x03
 
     DataStore keys (read by TelemetryTask):
-        "vesc.rpm"
-        "vesc.duty_cycle"
-        "vesc.motor_current"
-        "vesc.input_voltage"
-        "vesc.temperature_mos"
+        "rw.rpm"
+        "rw.duty_now"
+        "rw.current_motor"
+        "rw.v_in"
+        "rw.temp_mos1"
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
-        "rpm":             "vesc.rpm",
-        "duty_cycle":      "vesc.duty_cycle",
-        "motor_current":   "vesc.motor_current",
-        "input_voltage":   "vesc.input_voltage",
-        "temperature_mos": "vesc.temperature_mos",
+        "rpm":             "rw.rpm",
+        "duty_cycle":      "rw.duty_now",
+        "motor_current":   "rw.current_motor",
+        "input_voltage":   "rw.v_in",
+        "temperature_mos": "rw.temp_mos1",
     }
 
     rpm:             float = field(default=0.0, metadata=FieldMeta("f", "Motor RPM",          "rpm").as_metadata())
