@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import numpy as np
 from config.settings import SerialPortConfig, ControllerConfig
 from core.datastore import DataStore
@@ -40,6 +41,7 @@ class MMTask(BaseTask):
         yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
         while yaw_rate > 0.1:
             self.motor.set_brake_current(1650)
+            time.sleep(0.05)
 
     def execute(self) -> None:
         if self.motor is None:
@@ -51,3 +53,9 @@ class MMTask(BaseTask):
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_current(0)
+
+    def _hold(self, fn, value, duration, dt = 0.05):
+        start_time = time.time()
+        while time.time() - start_time < duration:
+            fn(value)
+            time.sleep(dt)

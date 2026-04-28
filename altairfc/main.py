@@ -93,6 +93,7 @@ def main() -> None:
             controller_config=config.controller["reaction_wheel"],
         )
     )
+    
     scheduler.register(
         MavlinkTask(
             name="mavlink",

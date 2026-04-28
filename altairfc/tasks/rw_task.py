@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import numpy as np
 from config.settings import SerialPortConfig
 from core.datastore import DataStore
@@ -38,7 +39,8 @@ class RWTask(BaseTask):
 
         logger.info("Bringing reaction wheel up to speed")
         yaw_rate = float(self.datastore.read("mavlink.attitude.yaw_speed", default=0.0))
-        self.motor.set_rpm(1700)
+        
+        self._hold(self.motor.set_rpm, 1700, duration=5.0)
         if yaw_rate < 0.1:
             return
 
@@ -63,3 +65,9 @@ class RWTask(BaseTask):
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_rpm(0)
+
+    def _hold(self, fn, value, suration, dt = 0.05):
+        start_time = time.time()
+        while time.time() - start_time < suration:
+            fn(value)
+            time.sleep(dt)
