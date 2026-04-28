@@ -76,23 +76,6 @@ def main() -> None:
     # Register tasks — scheduler.register() silently skips disabled tasks
     # ------------------------------------------------------------------
     scheduler.register(
-        MavlinkTask(
-            name="mavlink",
-            period_s=config.tasks["mavlink"].period_s,
-            datastore=datastore,
-            port_config=config.mavlink,
-        )
-    )
-
-    scheduler.register(
-        GpsTask(
-            name="gps",
-            period_s=config.tasks["gps"].period_s,
-            datastore=datastore,
-        )
-    )
-
-    scheduler.register(
         VescTask(
             name="vesc",
             period_s=config.tasks["vesc"].period_s,
@@ -110,6 +93,23 @@ def main() -> None:
             controller_config=config.controller["reaction_wheel"],
         )
     )
+    scheduler.register(
+        MavlinkTask(
+            name="mavlink",
+            period_s=config.tasks["mavlink"].period_s,
+            datastore=datastore,
+            port_config=config.mavlink,
+        )
+    )
+
+    scheduler.register(
+        GpsTask(
+            name="gps",
+            period_s=config.tasks["gps"].period_s,
+            datastore=datastore,
+        )
+    )
+
 
     scheduler.register(
         MMTask(
