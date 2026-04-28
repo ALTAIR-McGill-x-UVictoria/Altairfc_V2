@@ -42,7 +42,8 @@ class RWTask(BaseTask):
         while not self._stop_event.is_set():
             self._store()
             self.motor.set_rpm(1700)
-            yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
+            yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0
+                                                     )))
             if yaw_rate < 0.1:
                 break
             time.sleep(0.05)
@@ -61,14 +62,14 @@ class RWTask(BaseTask):
             self.motor.set_rpm(0)
 
     def _store(self):
-        data = self.motor.get_data()
+        data = self.motor.get_data(timeout=0.3)
         if data:
-            # Write all GetValues fields into the datastore under the 'vesc.' namespace
+            # Write all GetValues fields into the datastore under the 'rw.' namespace
             fields = [
-                'temp_mos1', 'temp_mos2', 'temp_mos3', 'temp_mos4', 'temp_mos5', 'temp_mos6',
-                'temp_pcb', 'current_motor', 'current_in', 'duty_now', 'rpm', 'v_in',
-                'amp_hours', 'amp_hours_charged', 'watt_hours', 'watt_hours_charged',
-                'tachometer', 'tachometer_abs', 'mc_fault_code',
+                'can_id', 'temp_fet', 'temp_motor', 'avg_motor_current', 'avg_input_current', 'avg_id',
+                'avg_iq', 'duty_cycle_now', 'rpm', 'v_in', 'amp_hours', 'amp_hours_charged',
+                'watt_hours', 'watt_hours_charged','tachometer', 'tachometer_abs', 'mc_fault_code',
+                'pid_pos_now', 'app_controller_id', 'time_ms',
             ]
             for f in fields:
                 try:
