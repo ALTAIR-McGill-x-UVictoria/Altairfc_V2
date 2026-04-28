@@ -72,7 +72,7 @@ port = "/dev/ttyACM0"
 baud = 115200
 
 [mm_esc]
-port = "/dev/ttyACM0"
+port = "/dev/ttyACM1"
 baud = 115200
 
 
