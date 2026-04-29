@@ -32,6 +32,10 @@ class TaskScheduler:
     def shutdown_event(self) -> threading.Event:
         return self._shutdown_event
 
+    @property
+    def tasks(self) -> dict[str, BaseTask]:
+        return self._tasks
+
     def register(self, task: BaseTask) -> None:
         if task.name in self._tasks:
             raise ValueError(f"Task '{task.name}' is already registered")
@@ -75,9 +79,7 @@ class TaskScheduler:
                         )
                         self._shutdown_event.set()
                         return
-                    else:
-                        logger.warning(
-                            "Task %s has failed (non-critical, system continues)", task.name
-                        )
-                if not task.is_alive and task.state == TaskState.RUNNING:
-                    logger.warning("Task %s thread died unexpectedly", task.name)
+                if not task.is_alive and task.state not in (
+                    TaskState.IDLE, TaskState.STOPPING, TaskState.RECOVERING
+                ):
+                    logger.warning("Task %s thread died unexpectedly (state=%s)", task.name, task.state.value)

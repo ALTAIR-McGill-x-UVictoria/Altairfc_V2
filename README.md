@@ -9,6 +9,13 @@ Peripherals include:
 
 ## Auto-start process:
 
+Copy the unit file from the repo root, then reload systemd:
+
+```
+sudo cp flight.service /etc/systemd/system/flight.service
+sudo systemctl daemon-reload
+```
+
 Systemd unit file written in `/etc/systemd/system/flight.service`
 
 Commands:

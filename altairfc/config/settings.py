@@ -71,6 +71,7 @@ class SystemConfig:
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
+    watchdog_sec: float = 30.0
 
     @classmethod
     def from_toml(cls, path: Path) -> "SystemConfig":
@@ -125,6 +126,7 @@ class SystemConfig:
             flight_stage=flight_stage,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s", 5.0),
+            watchdog_sec=system.get("watchdog_sec", 30.0),
         )
 
     def get_task(self, name: str) -> TaskConfig | None:

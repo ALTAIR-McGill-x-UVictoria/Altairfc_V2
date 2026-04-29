@@ -62,6 +62,7 @@ termination_confirm_window_s  = 30.0      # time window for termination confirma
 [system]
 log_level = "INFO"
 monitor_interval_s = 5.0
+watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
 
 [ground_station]
 latitude = 45.5400

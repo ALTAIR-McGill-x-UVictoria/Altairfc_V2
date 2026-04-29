@@ -15,6 +15,7 @@ Startup sequence:
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -31,6 +32,7 @@ from config.settings import SystemConfig
 from core.datastore import DataStore
 from core.lifecycle import install_signal_handlers, shutdown_event
 from core.scheduler import TaskScheduler
+from core.watchdog import WatchdogThread
 
 # Import all packet modules so their @register decorators fire before
 # TelemetryTask.execute() iterates the registry.
@@ -65,6 +67,10 @@ from telemetry.transport import SerialTransport
 
 
 def main() -> None:
+    build_script = Path(__file__).parent / "drivers" / "build_all.sh"
+    logger.info("Building C drivers via %s", build_script)
+    subprocess.run(["bash", str(build_script)], check=True)
+
     config_path = Path(__file__).parent / "config" / "settings.toml"
     logger.info("Loading config from %s", config_path)
     config = SystemConfig.from_toml(config_path)
@@ -208,9 +214,13 @@ def main() -> None:
     logger.info("Starting ALTAIR V2 flight computer")
     scheduler.start_all()
 
+    watchdog = WatchdogThread(scheduler, watchdog_sec=config.watchdog_sec)
+    watchdog.start()
+
     # Block main thread until SIGINT/SIGTERM or a critical task failure
     scheduler.shutdown_event.wait()
     logger.info("Shutdown event received — stopping all tasks")
+    watchdog.stop()
     scheduler.stop_all()
     logger.info("ALTAIR V2 shutdown complete")
 
