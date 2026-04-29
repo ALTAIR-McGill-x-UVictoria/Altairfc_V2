@@ -110,15 +110,18 @@ class AttitudePacket:
 
 @dataclass
 class PowerPacket:
-    """Packet ID 0x02 — Power distribution HAT."""
+    """Packet ID 0x02 — INA3221 three-rail power monitor."""
     PACKET_ID:    ClassVar[int]          = 0x02
-    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<fff")
-    FIELD_NAMES:  ClassVar[tuple]        = ("voltage_bus", "current_total", "temperature")
-    UNITS:        ClassVar[tuple]        = ("V", "A", "degC")
+    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<ffffff")
+    FIELD_NAMES:  ClassVar[tuple]        = ("voltage_24v", "current_24v", "voltage_12v", "current_12v", "voltage_5v", "current_5v")
+    UNITS:        ClassVar[tuple]        = ("V", "A", "V", "A", "V", "A")
 
-    voltage_bus:   float = 0.0
-    current_total: float = 0.0
-    temperature:   float = 0.0
+    voltage_24v: float = 0.0
+    current_24v: float = 0.0
+    voltage_12v: float = 0.0
+    current_12v: float = 0.0
+    voltage_5v:  float = 0.0
+    current_5v:  float = 0.0
 
 
 @dataclass
