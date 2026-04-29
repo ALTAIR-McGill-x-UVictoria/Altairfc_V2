@@ -33,11 +33,12 @@ python -m pytest tests/
 python -m pytest tests/test_datastore.py   # run a single test file
 ```
 
-## Building the GPS Driver (one-time per deployment)
+## Building C Drivers (one-time per deployment)
 
 ```bash
 cd altairfc/drivers
-bash build_gps.sh
+bash build_gps.sh       # u-blox MAX-M10M GPS
+bash build_ina3221.sh   # INA3221 power monitor
 ```
 
 ## Architecture

@@ -197,6 +197,7 @@ def main() -> None:
             name="power",
             period_s=config.tasks["power"].period_s,
             datastore=datastore,
+            i2c_dev=config.tasks["power"].extra.get("i2c_dev", "/dev/i2c-1"),
         )
     )
 

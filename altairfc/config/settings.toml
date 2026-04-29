@@ -31,8 +31,9 @@ enabled = false
 period_s = 0.01   # 100 Hz
 
 [tasks.power]
-enabled = false
+enabled = true
 period_s = 0.1    # 10 Hz
+i2c_dev  = "/dev/i2c-1"
 
 [tasks.command_receiver]
 enabled  = true

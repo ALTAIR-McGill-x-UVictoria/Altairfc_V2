@@ -10,21 +10,27 @@ from telemetry.registry import FieldMeta, packet_registry
 @dataclass
 class PowerPacket:
     """
-    Power distribution HAT telemetry.
+    INA3221 three-channel power monitor telemetry.
     Packet ID: 0x02
 
-    DataStore keys (read by TelemetryTask):
-        "power.voltage_bus"
-        "power.current_total"
-        "power.temperature"
+    Channel mapping:
+        CH1 → 24 V rail   (power.voltage_24v, power.current_24v)
+        CH2 → 12 V rail   (power.voltage_12v, power.current_12v)
+        CH3 →  5 V rail   (power.voltage_5v,  power.current_5v)
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
-        "voltage_bus":    "power.voltage_bus",
-        "current_total":  "power.current_total",
-        "temperature":    "power.temperature",
+        "voltage_24v": "power.voltage_24v",
+        "current_24v": "power.current_24v",
+        "voltage_12v": "power.voltage_12v",
+        "current_12v": "power.current_12v",
+        "voltage_5v":  "power.voltage_5v",
+        "current_5v":  "power.current_5v",
     }
 
-    voltage_bus:   float = field(default=0.0, metadata=FieldMeta("f", "Bus voltage",        "V").as_metadata())
-    current_total: float = field(default=0.0, metadata=FieldMeta("f", "Total current draw", "A").as_metadata())
-    temperature:   float = field(default=0.0, metadata=FieldMeta("f", "Board temperature",  "degC").as_metadata())
+    voltage_24v: float = field(default=0.0, metadata=FieldMeta("f", "24 V rail voltage", "V").as_metadata())
+    current_24v: float = field(default=0.0, metadata=FieldMeta("f", "24 V rail current", "A").as_metadata())
+    voltage_12v: float = field(default=0.0, metadata=FieldMeta("f", "12 V rail voltage", "V").as_metadata())
+    current_12v: float = field(default=0.0, metadata=FieldMeta("f", "12 V rail current", "A").as_metadata())
+    voltage_5v:  float = field(default=0.0, metadata=FieldMeta("f", "5 V rail voltage",  "V").as_metadata())
+    current_5v:  float = field(default=0.0, metadata=FieldMeta("f", "5 V rail current",  "A").as_metadata())
