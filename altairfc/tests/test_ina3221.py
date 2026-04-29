@@ -32,7 +32,7 @@ REG_MANUF   = 0xFE
 REG_DIE     = 0xFF
 
 EXPECTED_MANUF_ID = 0x5449   # "TI"
-EXPECTED_DIE_ID   = 0x2210   # INA3221
+EXPECTED_DIE_ID   = 0x3220   # INA3221 (die ID register byte order)
 
 INA3221_CONFIG = 0x7127      # same value written by the C driver
 
@@ -89,7 +89,7 @@ def check_manuf_id(bus):
 def check_die_id(bus):
     die = read_reg16(bus, REG_DIE)
     if die == EXPECTED_DIE_ID:
-        print(f"[OK] Die ID = 0x{die:04X} (INA3221)")
+        print(f"[OK] Die ID = 0x{die:04X} (INA3221 confirmed)")
         return True
     print(f"[FAIL] Die ID = 0x{die:04X}, expected 0x{EXPECTED_DIE_ID:04X}")
     return False
