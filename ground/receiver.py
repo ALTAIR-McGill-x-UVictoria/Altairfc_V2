@@ -152,11 +152,101 @@ class PhotodiodePacket:
     channel_3: float = 0.0
 
 
+@dataclass
+class FlightSettingsPacket:
+    """Packet ID 0x09 — Active flight configuration snapshot."""
+    PACKET_ID:   ClassVar[int]           = 0x09
+    STRUCT_FMT:  ClassVar[struct.Struct] = struct.Struct("<ffffffffffffffff")  # 16 × float32
+    FIELD_NAMES: ClassVar[tuple]         = (
+        "termination_altitude_m", "burst_altitude_m", "burst_altitude_uncertainty_m",
+        "ascent_detect_window_s", "ascent_detect_gain_m", "apogee_fraction",
+        "landing_fraction", "recovery_stationary_s", "termination_confirm_drop_m",
+        "termination_confirm_window_s",
+        "rw_kp", "rw_kd", "rw_max_rpm",
+        "mm_kp", "mm_kd", "mm_max_current",
+    )
+    UNITS: ClassVar[tuple] = (
+        "m", "m", "m", "s", "m", "fraction", "fraction", "s", "m", "s",
+        "RPM/rad/s", "RPM/rad/s2", "RPM",
+        "A/rad/s", "A/rad/s2", "mA",
+    )
+
+    termination_altitude_m:       float = 0.0
+    burst_altitude_m:             float = 0.0
+    burst_altitude_uncertainty_m: float = 0.0
+    ascent_detect_window_s:       float = 0.0
+    ascent_detect_gain_m:         float = 0.0
+    apogee_fraction:              float = 0.0
+    landing_fraction:             float = 0.0
+    recovery_stationary_s:        float = 0.0
+    termination_confirm_drop_m:   float = 0.0
+    termination_confirm_window_s: float = 0.0
+    rw_kp:                        float = 0.0
+    rw_kd:                        float = 0.0
+    rw_max_rpm:                   float = 0.0
+    mm_kp:                        float = 0.0
+    mm_kd:                        float = 0.0
+    mm_max_current:               float = 0.0
+
+
 # Registry: packet_id -> class
 _PACKET_REGISTRY: dict[int, type] = {
     cls.PACKET_ID: cls
-    for cls in (AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket)
+    for cls in (AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket)
 }
+
+# ---------------------------------------------------------------------------
+# Settings update command (GS→FC)
+# Field IDs must match SETTING_KEYS in altairfc/telemetry/commands/update_setting.py
+# ---------------------------------------------------------------------------
+SETTING_KEYS: tuple[str, ...] = (
+    "termination_altitude_m",        # 0
+    "burst_altitude_m",              # 1
+    "burst_altitude_uncertainty_m",  # 2
+    "ascent_detect_window_s",        # 3
+    "ascent_detect_gain_m",          # 4
+    "apogee_fraction",               # 5
+    "landing_fraction",              # 6
+    "recovery_stationary_s",         # 7
+    "termination_confirm_drop_m",    # 8
+    "termination_confirm_window_s",  # 9
+    "rw_kp",                         # 10
+    "rw_kd",                         # 11
+    "rw_max_rpm",                    # 12
+    "mm_kp",                         # 13
+    "mm_kd",                         # 14
+    "mm_max_current",                # 15
+)
+
+_UPDATE_SETTING_CMD_ID = 0xC3
+_SETTING_PAYLOAD       = struct.Struct("<Bf")   # uint8 field_id + float32 value
+_cmd_seq: int          = 0
+
+
+def send_settings_update_command(ser: serial.Serial, field_id: int, value: float) -> None:
+    """
+    Send an UpdateSettingCommand frame to the flight computer.
+
+    field_id indexes into SETTING_KEYS. The FC will write the new value to
+    the corresponding DataStore key and return an ACK.
+
+    Example — lower cutdown altitude to 20 km:
+        send_settings_update_command(ser, 0, 20000.0)
+    """
+    global _cmd_seq
+    if not (0 <= field_id < len(SETTING_KEYS)):
+        raise ValueError(f"field_id {field_id} out of range (0–{len(SETTING_KEYS) - 1})")
+    payload    = _SETTING_PAYLOAD.pack(field_id, value)
+    timestamp  = time.time()
+    header     = _HEADER.pack(SYNC_BYTE, _UPDATE_SETTING_CMD_ID, _cmd_seq & 0xFF, timestamp, len(payload))
+    crc        = binascii.crc_hqx(header[1:] + payload, 0xFFFF)
+    frame      = header + payload + _CRC.pack(crc)
+    ser.write(frame)
+    logger.info(
+        "Sent UpdateSetting: field_id=%d (%s) = %g",
+        field_id, SETTING_KEYS[field_id], value,
+    )
+    _cmd_seq = (_cmd_seq + 1) & 0xFF
 
 # ---------------------------------------------------------------------------
 # Frame constants  (must match altairfc/telemetry/serializer.py)

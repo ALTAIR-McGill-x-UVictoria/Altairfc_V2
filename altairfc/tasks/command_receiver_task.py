@@ -120,6 +120,25 @@ class CommandReceiverTask(BaseTask):
                         "CommandReceiverTask: LAUNCH_OK rejected — stage is %d, expected %d (ARMED)",
                         stage, STAGE_ARMED,
                     )
+
+        elif getattr(type(command), "SETTING_DISPATCH", False):
+            from telemetry.commands.update_setting import SETTING_KEYS  # local import avoids circular
+            field_id = int(getattr(command, "field_id", -1))
+            value    = float(getattr(command, "value",    0.0))
+            if 0 <= field_id < len(SETTING_KEYS):
+                ds_key = SETTING_KEYS[field_id]
+                self.datastore.write(ds_key, value)
+                logger.info(
+                    "CommandReceiverTask: UpdateSetting field_id=%d → %s = %s",
+                    field_id, ds_key, value,
+                )
+            else:
+                status = ACK_REJECTED
+                logger.warning(
+                    "CommandReceiverTask: UpdateSetting rejected — field_id %d out of range (max %d)",
+                    field_id, len(SETTING_KEYS) - 1,
+                )
+
         else:
             # No DataStore key — command is acknowledged at the transport layer only (e.g. PING)
             logger.info("CommandReceiverTask: %s received (no DataStore key)", type(command).__name__)

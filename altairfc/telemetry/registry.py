@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 import struct
-from typing import Callable, ClassVar, NamedTuple
+from typing import Callable, ClassVar, Optional
 
 
-class FieldMeta(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class FieldMeta:
     """
     Metadata descriptor for a packet dataclass field.
 
@@ -21,6 +22,10 @@ class FieldMeta(NamedTuple):
         'B' — uint8   (1 byte)
     description: Human-readable field description.
     units: Physical units string (e.g. "rad", "m/s", "V").
+    group: Display group name for UI organisation (e.g. "Flight Parameters").
+           Empty string means ungrouped.
+    min_val: Minimum valid value (inclusive). None means no lower bound.
+    max_val: Maximum valid value (inclusive). None means no upper bound.
 
     Usage with dataclasses.field():
         roll: float = field(default=0.0, metadata=FieldMeta("f", "Roll angle", "rad").as_metadata())
@@ -29,6 +34,9 @@ class FieldMeta(NamedTuple):
     struct_char: str
     description: str
     units: str
+    group:   str            = ""
+    min_val: Optional[float] = None
+    max_val: Optional[float] = None
 
     def as_metadata(self) -> dict:
         """Wrap in a dict so dataclasses.field(metadata=...) accepts it."""

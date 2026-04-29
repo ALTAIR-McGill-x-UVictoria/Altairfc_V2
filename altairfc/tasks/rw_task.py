@@ -51,6 +51,9 @@ class RWTask(BaseTask):
     def execute(self) -> None:
         if self.motor is None:
             return
+        self.controller.Kp        = float(self.datastore.read("settings.rw_kp",      default=self.controller.Kp))
+        self.controller.Kd        = float(self.datastore.read("settings.rw_kd",      default=self.controller.Kd))
+        self.controller.max_value = float(self.datastore.read("settings.rw_max_rpm", default=self.controller.max_value))
         self._store()
         quat, pos = self._read()
         az_err, _ = compute_error(quat, pos)

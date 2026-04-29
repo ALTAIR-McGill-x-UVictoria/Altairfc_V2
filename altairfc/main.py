@@ -34,20 +34,22 @@ from core.scheduler import TaskScheduler
 
 # Import all packet modules so their @register decorators fire before
 # TelemetryTask.execute() iterates the registry.
-import telemetry.packets.heartbeat     # noqa: F401
-import telemetry.packets.attitude      # noqa: F401
-import telemetry.packets.power         # noqa: F401
-import telemetry.packets.vesc          # noqa: F401
-import telemetry.packets.photodiode    # noqa: F401
-import telemetry.packets.gps           # noqa: F401
-import telemetry.packets.environment   # noqa: F401
-import telemetry.packets.events        # noqa: F401
-import telemetry.packets.ack           # noqa: F401
+import telemetry.packets.heartbeat       # noqa: F401
+import telemetry.packets.attitude        # noqa: F401
+import telemetry.packets.power           # noqa: F401
+import telemetry.packets.vesc            # noqa: F401
+import telemetry.packets.photodiode      # noqa: F401
+import telemetry.packets.gps             # noqa: F401
+import telemetry.packets.environment     # noqa: F401
+import telemetry.packets.events          # noqa: F401
+import telemetry.packets.ack             # noqa: F401
+import telemetry.packets.flight_settings  # noqa: F401
 
 # Import command modules so their @register decorators populate command_registry
-import telemetry.commands.arm          # noqa: F401
-import telemetry.commands.launch_ok    # noqa: F401
-import telemetry.commands.ping         # noqa: F401
+import telemetry.commands.arm            # noqa: F401
+import telemetry.commands.launch_ok      # noqa: F401
+import telemetry.commands.ping           # noqa: F401
+import telemetry.commands.update_setting  # noqa: F401
 
 from tasks.gps_task import GpsTask
 from tasks.mavlink_task import MavlinkTask
@@ -70,6 +72,34 @@ def main() -> None:
     setup_logging(config.log_level)
 
     datastore = DataStore()
+
+    # Write all flight settings to DataStore before tasks start.
+    # FlightStageTask, RWTask, and MMTask read these keys each cycle so that
+    # an UpdateSettingCommand from the GS takes effect without a restart.
+    _fs = config.flight_stage
+    _rw = config.controller["reaction_wheel"]
+    _mm = config.controller["momentum_management"]
+    for _key, _val in {
+        "settings.termination_altitude_m":       _fs.termination_altitude_m,
+        "settings.burst_altitude_m":             _fs.burst_altitude_m,
+        "settings.burst_altitude_uncertainty_m": _fs.burst_altitude_uncertainty_m,
+        "settings.ascent_detect_window_s":       _fs.ascent_detect_window_s,
+        "settings.ascent_detect_gain_m":         _fs.ascent_detect_gain_m,
+        "settings.apogee_fraction":              _fs.apogee_fraction,
+        "settings.landing_fraction":             _fs.landing_fraction,
+        "settings.recovery_stationary_s":        _fs.recovery_stationary_s,
+        "settings.termination_confirm_drop_m":   _fs.termination_confirm_drop_m,
+        "settings.termination_confirm_window_s": _fs.termination_confirm_window_s,
+        "settings.rw_kp":          _rw.Kp,
+        "settings.rw_kd":          _rw.Kd,
+        "settings.rw_max_rpm":     _rw.max,
+        "settings.mm_kp":          _mm.Kp,
+        "settings.mm_kd":          _mm.Kd,
+        "settings.mm_max_current": _mm.max,
+    }.items():
+        datastore.write(_key, float(_val))
+    logger.info("Wrote 16 flight settings to DataStore")
+
     scheduler = TaskScheduler(datastore, config)
 
     # ------------------------------------------------------------------

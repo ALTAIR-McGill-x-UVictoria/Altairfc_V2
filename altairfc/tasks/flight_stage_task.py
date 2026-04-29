@@ -183,17 +183,32 @@ class FlightStageTask(BaseTask):
             self.datastore.write("event.arm_state", 1)
         arm_state: int = int(self.datastore.read("event.arm_state", default=0))
 
+        # Read current settings from DataStore (updated live by UpdateSettingCommand).
+        # Fall back to the config object loaded at startup if a key is missing.
+        cfg = FlightStageConfig(
+            termination_altitude_m       = float(self.datastore.read("settings.termination_altitude_m",       default=self._cfg.termination_altitude_m)),
+            burst_altitude_m             = float(self.datastore.read("settings.burst_altitude_m",             default=self._cfg.burst_altitude_m)),
+            burst_altitude_uncertainty_m = float(self.datastore.read("settings.burst_altitude_uncertainty_m", default=self._cfg.burst_altitude_uncertainty_m)),
+            ascent_detect_window_s       = float(self.datastore.read("settings.ascent_detect_window_s",       default=self._cfg.ascent_detect_window_s)),
+            ascent_detect_gain_m         = float(self.datastore.read("settings.ascent_detect_gain_m",         default=self._cfg.ascent_detect_gain_m)),
+            apogee_fraction              = float(self.datastore.read("settings.apogee_fraction",              default=self._cfg.apogee_fraction)),
+            landing_fraction             = float(self.datastore.read("settings.landing_fraction",             default=self._cfg.landing_fraction)),
+            recovery_stationary_s        = float(self.datastore.read("settings.recovery_stationary_s",        default=self._cfg.recovery_stationary_s)),
+            termination_confirm_drop_m   = float(self.datastore.read("settings.termination_confirm_drop_m",   default=self._cfg.termination_confirm_drop_m)),
+            termination_confirm_window_s = float(self.datastore.read("settings.termination_confirm_window_s", default=self._cfg.termination_confirm_window_s)),
+        )
+
         # Keep rolling altitude history and update apogee
         self._alt_history.append((now, baro_alt))
         self._prune_history(now, max(
-            self._cfg.ascent_detect_window_s,
-            self._cfg.termination_confirm_window_s,
+            cfg.ascent_detect_window_s,
+            cfg.termination_confirm_window_s,
         ))
         if self._stage == STAGE_ASCENT and baro_alt > self._measured_apogee:
             self._measured_apogee = baro_alt
 
         # Run state transitions
-        new_stage = self._transition(now, baro_alt, climb, arm_state)
+        new_stage = self._transition(now, baro_alt, climb, arm_state, cfg)
         if new_stage != self._stage:
             logger.info("FlightStageTask: stage %d → %d", self._stage, new_stage)
             self._stage = new_stage
@@ -213,6 +228,7 @@ class FlightStageTask(BaseTask):
         baro_alt: float,
         climb: float,
         arm_state: int,
+        cfg: FlightStageConfig,
     ) -> int:
         stage = self._stage
 
@@ -229,7 +245,7 @@ class FlightStageTask(BaseTask):
                 return STAGE_LAUNCH
 
         elif stage == STAGE_LAUNCH:
-            if self._detect_ascent(now, baro_alt):
+            if self._detect_ascent(now, baro_alt, cfg):
                 self._write_flag("ascent_active", 1)
                 self._measured_apogee = baro_alt
                 return STAGE_ASCENT
@@ -237,12 +253,12 @@ class FlightStageTask(BaseTask):
         elif stage == STAGE_ASCENT:
             # Fire cutdown if above termination altitude
             if (
-                baro_alt >= self._cfg.termination_altitude_m
+                baro_alt >= cfg.termination_altitude_m
                 and not self._flags["cutdown_fired"]
             ):
                 logger.warning(
                     "FlightStageTask: termination altitude %.1f m reached — firing cutdown",
-                    self._cfg.termination_altitude_m,
+                    cfg.termination_altitude_m,
                 )
                 _hw_fire_cutdown()  # TODO: stub — replace with real GPIO once pin is assigned
                 self._write_flag("cutdown_fired", 1)
@@ -254,20 +270,20 @@ class FlightStageTask(BaseTask):
                 drop = self._cutdown_triggered_alt - baro_alt
                 elapsed = now - (self._cutdown_trigger_time or now)
                 if (
-                    drop >= self._cfg.termination_confirm_drop_m
-                    and elapsed <= self._cfg.termination_confirm_window_s
+                    drop >= cfg.termination_confirm_drop_m
+                    and elapsed <= cfg.termination_confirm_window_s
                 ):
                     self._write_flag("termination_fired", 1)
                     return STAGE_TERMINATION
 
                 # Cutdown window expired without confirmation → treat as burst
-                if elapsed > self._cfg.termination_confirm_window_s:
+                if elapsed > cfg.termination_confirm_window_s:
                     self._write_flag("burst_detected", 1)
                     return STAGE_BURST
 
             # Natural burst: in burst altitude zone and climbing very slowly
             in_burst_zone = baro_alt >= (
-                self._cfg.burst_altitude_m - self._cfg.burst_altitude_uncertainty_m
+                cfg.burst_altitude_m - cfg.burst_altitude_uncertainty_m
             )
             if in_burst_zone and not self._flags["cutdown_fired"]:
                 if climb < _ASCENDING_RATE_THRESHOLD:
@@ -281,14 +297,14 @@ class FlightStageTask(BaseTask):
 
         elif stage in (STAGE_TERMINATION, STAGE_BURST):
             if self._measured_apogee > 0:
-                if baro_alt <= self._measured_apogee * self._cfg.apogee_fraction:
+                if baro_alt <= self._measured_apogee * cfg.apogee_fraction:
                     self._write_flag("ascent_active", 0)
                     self._write_flag("descent_active", 1)
                     return STAGE_DESCENT
 
         elif stage == STAGE_DESCENT:
             if self._measured_apogee > 0:
-                if baro_alt <= self._measured_apogee * self._cfg.landing_fraction:
+                if baro_alt <= self._measured_apogee * cfg.landing_fraction:
                     self._write_flag("descent_active", 0)
                     self._write_flag("landing_detected", 1)
                     return STAGE_LANDING
@@ -303,7 +319,7 @@ class FlightStageTask(BaseTask):
                 self._stationary_since = now
             else:
                 stationary_duration = now - (self._stationary_since or now)
-                if stationary_duration >= self._cfg.recovery_stationary_s:
+                if stationary_duration >= cfg.recovery_stationary_s:
                     self._write_flag("recovery_active", 1)
                     return STAGE_RECOVERY
 
@@ -322,14 +338,14 @@ class FlightStageTask(BaseTask):
         oldest_alt = old_pts[-1][1]
         return (baro_alt - oldest_alt) >= _LAUNCH_GAIN_M
 
-    def _detect_ascent(self, now: float, baro_alt: float) -> bool:
+    def _detect_ascent(self, now: float, baro_alt: float, cfg: FlightStageConfig) -> bool:
         """True if altitude gained ≥ ascent_detect_gain_m over ascent_detect_window_s."""
-        cutoff = now - self._cfg.ascent_detect_window_s
+        cutoff = now - cfg.ascent_detect_window_s
         old_pts = [(t, a) for t, a in self._alt_history if t <= cutoff]
         if not old_pts:
             return False
         oldest_alt = old_pts[-1][1]
-        return (baro_alt - oldest_alt) >= self._cfg.ascent_detect_gain_m
+        return (baro_alt - oldest_alt) >= cfg.ascent_detect_gain_m
 
     # ------------------------------------------------------------------
     # Utilities
