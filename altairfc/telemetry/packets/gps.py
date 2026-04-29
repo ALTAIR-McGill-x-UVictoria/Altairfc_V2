@@ -16,6 +16,7 @@ class LocalGpsPacket:
     """
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
+        "active":      "gps.active",
         "lat":         "gps.lat",
         "lon":         "gps.lon",
         "alt_msl":     "gps.alt_msl",
@@ -25,13 +26,14 @@ class LocalGpsPacket:
         "num_sv":      "gps.num_sv",
     }
 
-    lat:         float = field(default=0.0, metadata=FieldMeta("f", "Latitude",     "deg").as_metadata())
-    lon:         float = field(default=0.0, metadata=FieldMeta("f", "Longitude",    "deg").as_metadata())
-    alt_msl:     float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL", "m").as_metadata())
-    speed_ms:    float = field(default=0.0, metadata=FieldMeta("f", "Ground speed", "m/s").as_metadata())
-    heading_deg: float = field(default=0.0, metadata=FieldMeta("f", "Heading",      "deg").as_metadata())
-    fix_type:    int   = field(default=0,   metadata=FieldMeta("B", "Fix type",     "").as_metadata())
-    num_sv:      int   = field(default=0,   metadata=FieldMeta("B", "Satellites",   "").as_metadata())
+    active:      int   = field(default=0,   metadata=FieldMeta("B", "Module active", "").as_metadata())
+    lat:         float = field(default=0.0, metadata=FieldMeta("f", "Latitude",       "deg").as_metadata())
+    lon:         float = field(default=0.0, metadata=FieldMeta("f", "Longitude",      "deg").as_metadata())
+    alt_msl:     float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL",   "m").as_metadata())
+    speed_ms:    float = field(default=0.0, metadata=FieldMeta("f", "Ground speed",   "m/s").as_metadata())
+    heading_deg: float = field(default=0.0, metadata=FieldMeta("f", "Heading",        "deg").as_metadata())
+    fix_type:    int   = field(default=0,   metadata=FieldMeta("B", "Fix type",       "").as_metadata())
+    num_sv:      int   = field(default=0,   metadata=FieldMeta("B", "Satellites",     "").as_metadata())
 
 
 @packet_registry.register(packet_id=0x08)

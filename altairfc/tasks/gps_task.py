@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.gps_driver import GpsDriver
 
 logger = logging.getLogger(__name__)
+
+_PING_INTERVAL_S = 10.0
 
 
 class GpsTask(BaseTask):
@@ -16,7 +19,12 @@ class GpsTask(BaseTask):
     Polls UBX-NAV-PVT at the configured period (1 Hz default) and writes results
     to the DataStore under the "gps.*" namespace.
 
+    gps.active is updated every _PING_INTERVAL_S seconds by probing the DDC
+    byte-count register independently of the PVT poll, so it reflects true I2C
+    presence rather than fix availability.
+
     DataStore keys written:
+        gps.active       (int, 1 if module responding to I2C)
         gps.lat          (float, deg)
         gps.lon          (float, deg)
         gps.alt_msl      (float, m)
@@ -42,14 +50,27 @@ class GpsTask(BaseTask):
         super().__init__(name, period_s, datastore)
         self._i2c_dev = i2c_dev
         self._driver: GpsDriver | None = None
+        self._last_ping: float = 0.0
 
     def setup(self) -> None:
         self._driver = GpsDriver(i2c_dev=self._i2c_dev)
+        self.datastore.write("gps.active", 1)
+        self._last_ping = time.monotonic()
         logger.info("GpsTask: driver ready on %s", self._i2c_dev)
 
     def execute(self) -> None:
         if self._driver is None:
+            self.datastore.write("gps.active", 0)
             return
+
+        now = time.monotonic()
+        if now - self._last_ping >= _PING_INTERVAL_S:
+            active = 1 if self._driver.ping() else 0
+            self.datastore.write("gps.active", active)
+            self._last_ping = now
+            if not active:
+                logger.warning("GpsTask: module not responding to I2C ping")
+
         fix = self._driver.read()
         if fix is None:
             return

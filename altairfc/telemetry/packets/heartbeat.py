@@ -18,7 +18,7 @@ class HeartbeatPacket:
     is alive and to carry basic system health metrics.
 
     Packet ID: 0x00
-    Payload size: 2 * 8 + 8 * 4 = 48 bytes
+    Payload size: 2 * 8 + 10 * 4 = 56 bytes
 
     Fields:
         time_unix            — wall-clock UNIX timestamp (float64, s)
@@ -55,6 +55,7 @@ class HeartbeatPacket:
         "vesc_connected":       "system.vesc_connected",
         "power_connected":      "system.power_connected",
         "photodiode_connected": "system.photodiode_connected",
+        "pps_synced":           "system.pps_synced",
         "pps_rms_us":           "system.pps_rms_us",
     }
 
@@ -67,6 +68,7 @@ class HeartbeatPacket:
     vesc_connected:       float = field(default=0.0, metadata=FieldMeta("f", "VESC link",                 "bool").as_metadata())
     power_connected:      float = field(default=0.0, metadata=FieldMeta("f", "Power board link",          "bool").as_metadata())
     photodiode_connected: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode board link",     "bool").as_metadata())
+    pps_synced:           float = field(default=0.0, metadata=FieldMeta("f", "PPS time sync",             "bool").as_metadata())
     pps_rms_us:           float = field(default=0.0, metadata=FieldMeta("f", "PPS RMS offset",            "us").as_metadata())
 
 
@@ -112,32 +114,46 @@ def read_mem_used_pct() -> float:
         return 0.0
 
 
-def read_pps_rms_us() -> float:
-    """
-    Queries chronyc for the RMS offset of the PPS refclock and returns it in µs.
-    Runs 'chronyc tracking' and parses the 'RMS offset' line.
-    Returns 0.0 if chrony is unavailable or PPS is not locked.
-    """
+def _chronyc_tracking() -> str:
+    """Run 'chronyc tracking' once and return stdout; empty string on failure."""
     try:
-        out = subprocess.run(
+        return subprocess.run(
             ["chronyc", "tracking"],
             capture_output=True, text=True, timeout=1.0,
         ).stdout
-        m = re.search(r"RMS offset\s*:\s*([\d.e+\-]+)\s*(\w+)", out)
-        if not m:
-            return 0.0
-        value, unit = float(m.group(1)), m.group(2)
-        if unit == "us":
-            return value
-        if unit == "ms":
-            return value * 1e3
-        if unit == "ns":
-            return value * 1e-3
-        if unit == "s":
-            return value * 1e6
-        return value
     except Exception:
-        return 0.0
+        return ""
+
+
+def read_pps_stats() -> tuple[int, float]:
+    """
+    Parses 'chronyc tracking' output and returns (pps_synced, pps_rms_us).
+
+    pps_synced: 1 if the current reference source name contains "PPS", 0 otherwise.
+    pps_rms_us: RMS offset in µs; 0.0 if chrony is unavailable.
+    """
+    out = _chronyc_tracking()
+    if not out:
+        return 0, 0.0
+
+    # Reference ID line: "Reference ID    : 50505300 (PPS)" or "GPS" etc.
+    ref_m = re.search(r"Reference ID\s*:\s*\S+\s*\(([^)]+)\)", out)
+    pps_synced = 1 if (ref_m and "PPS" in ref_m.group(1).upper()) else 0
+
+    rms_us = 0.0
+    rms_m = re.search(r"RMS offset\s*:\s*([\d.e+\-]+)\s*(\w+)", out)
+    if rms_m:
+        value, unit = float(rms_m.group(1)), rms_m.group(2)
+        if unit == "us":
+            rms_us = value
+        elif unit == "ms":
+            rms_us = value * 1e3
+        elif unit == "ns":
+            rms_us = value * 1e-3
+        elif unit == "s":
+            rms_us = value * 1e6
+
+    return pps_synced, rms_us
 
 
 def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
@@ -145,13 +161,15 @@ def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
     Returns a dict of system.* DataStore key → value for the current instant.
     Pass tasks_running from the scheduler so the heartbeat reflects live task count.
     """
+    pps_synced, pps_rms_us = read_pps_stats()
     return {
         "system.time_unix":     time.time(),
         "system.uptime_s":      time.monotonic() - _BOOT_MONOTONIC,
         "system.cpu_load_pct":  read_cpu_load(),
         "system.mem_used_pct":  read_mem_used_pct(),
         "system.tasks_running": float(tasks_running),
-        "system.pps_rms_us":    read_pps_rms_us(),
+        "system.pps_synced":    float(pps_synced),
+        "system.pps_rms_us":    pps_rms_us,
         # system.pixhawk_connected and system.vesc_connected are written by
         # their respective tasks and must not be overwritten here.
     }

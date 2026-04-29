@@ -267,6 +267,17 @@ int gps_read(int fd, GpsFix *fix)
     return 1;
 }
 
+/*
+ * Probe the module by reading the DDC byte-count register.
+ * Returns  0: module responding
+ *         -1: I2C error (module absent or hung)
+ */
+int gps_ping(int fd)
+{
+    uint8_t probe;
+    return i2c_read_reg(fd, REG_BYTES_HI, &probe, 1) < 0 ? -1 : 0;
+}
+
 void gps_close(int fd)
 {
     if (fd >= 0) close(fd);

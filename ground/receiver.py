@@ -91,6 +91,32 @@ logger = logging.getLogger("ground.receiver")
 # Add/remove fields here to match the flight computer side.
 
 @dataclass
+class HeartbeatPacket:
+    """Packet ID 0x00 — system heartbeat."""
+    PACKET_ID:    ClassVar[int]          = 0x00
+    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<ddffffffffff")
+    FIELD_NAMES:  ClassVar[tuple]        = (
+        "time_unix", "uptime_s",
+        "cpu_load_pct", "mem_used_pct", "tasks_running",
+        "pixhawk_connected", "vesc_connected", "power_connected", "photodiode_connected",
+        "pps_synced", "pps_rms_us",
+    )
+    UNITS: ClassVar[tuple] = ("s", "s", "%", "%", "count", "bool", "bool", "bool", "bool", "bool", "us")
+
+    time_unix:            float = 0.0
+    uptime_s:             float = 0.0
+    cpu_load_pct:         float = 0.0
+    mem_used_pct:         float = 0.0
+    tasks_running:        float = 0.0
+    pixhawk_connected:    float = 0.0
+    vesc_connected:       float = 0.0
+    power_connected:      float = 0.0
+    photodiode_connected: float = 0.0
+    pps_synced:           float = 0.0
+    pps_rms_us:           float = 0.0
+
+
+@dataclass
 class AttitudePacket:
     """Packet ID 0x01 — MAVLink ATTITUDE from Pixhawk 6X mini."""
     PACKET_ID:    ClassVar[int]          = 0x01
@@ -192,10 +218,28 @@ class FlightSettingsPacket:
     mm_max_current:               float = 0.0
 
 
+@dataclass
+class LocalGpsPacket:
+    """Packet ID 0x05 — onboard MAX-M10M GPS module."""
+    PACKET_ID:    ClassVar[int]          = 0x05
+    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<Bfffff BB")
+    FIELD_NAMES:  ClassVar[tuple]        = ("active", "lat", "lon", "alt_msl", "speed_ms", "heading_deg", "fix_type", "num_sv")
+    UNITS:        ClassVar[tuple]        = ("", "deg", "deg", "m", "m/s", "deg", "", "")
+
+    active:      int   = 0
+    lat:         float = 0.0
+    lon:         float = 0.0
+    alt_msl:     float = 0.0
+    speed_ms:    float = 0.0
+    heading_deg: float = 0.0
+    fix_type:    int   = 0
+    num_sv:      int   = 0
+
+
 # Registry: packet_id -> class
 _PACKET_REGISTRY: dict[int, type] = {
     cls.PACKET_ID: cls
-    for cls in (AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket)
+    for cls in (HeartbeatPacket, AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket, LocalGpsPacket)
 }
 
 # ---------------------------------------------------------------------------

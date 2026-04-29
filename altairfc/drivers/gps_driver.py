@@ -37,6 +37,8 @@ def _load_lib() -> ctypes.CDLL:
     lib.gps_open.argtypes = [ctypes.c_char_p]
     lib.gps_read.restype  = ctypes.c_int
     lib.gps_read.argtypes = [ctypes.c_int, ctypes.POINTER(GpsFix)]
+    lib.gps_ping.restype  = ctypes.c_int
+    lib.gps_ping.argtypes = [ctypes.c_int]
     lib.gps_close.restype  = None
     lib.gps_close.argtypes = [ctypes.c_int]
     return lib
@@ -58,6 +60,10 @@ class GpsDriver:
         if ret == -1:
             logger.warning("GpsDriver: I2C error during read")
         return None
+
+    def ping(self) -> bool:
+        """Returns True if the module responds to an I2C read of the DDC byte-count register."""
+        return self._lib.gps_ping(self._fd) == 0
 
     def close(self) -> None:
         if self._fd >= 0:
