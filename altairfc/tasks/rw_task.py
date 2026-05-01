@@ -38,19 +38,21 @@ class RWTask(BaseTask):
             return
 
         logger.info("Bringing reaction wheel up to speed")
-        self._hold(self.motor.set_rpm, 1700, duration=5.0)
+        self._hold(self.motor.set_rpm, 3500, duration=5.0)
         while not self._stop_event.is_set():
+            logger.info("Stabilizing Payload")
             self._store()
             self.motor.set_rpm(1700)
             yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0
                                                      )))
             if yaw_rate < 0.1:
-                break
+                return
             time.sleep(0.05)
 
     def execute(self) -> None:
         if self.motor is None:
             return
+        logger.info("PID running")
         self.controller.Kp        = float(self.datastore.read("settings.rw_kp",      default=self.controller.Kp))
         self.controller.Kd        = float(self.datastore.read("settings.rw_kd",      default=self.controller.Kd))
         self.controller.max_value = float(self.datastore.read("settings.rw_max_rpm", default=self.controller.max_value))
