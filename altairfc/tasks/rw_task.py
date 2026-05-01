@@ -58,7 +58,7 @@ class RWTask(BaseTask):
         quat, pos = self._read()
         az_err, _ = compute_error(quat, pos)
         control_signal = self.controller.output(az_err) + 1700
-        self.motor.set_rpm(control_signal)
+        self.motor.set_rpm(int(control_signal))
 
     def teardown(self) -> None:
         if self.motor is not None:
