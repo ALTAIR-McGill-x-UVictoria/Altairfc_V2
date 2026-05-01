@@ -43,8 +43,7 @@ class RWTask(BaseTask):
             logger.info("Stabilizing Payload")
             self._store()
             self.motor.set_rpm(1700)
-            yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0
-                                                     )))
+            yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
             if yaw_rate < 0.1:
                 return
             time.sleep(0.05)
@@ -53,14 +52,11 @@ class RWTask(BaseTask):
         if self.motor is None:
             return
         logger.info("PID running")
-        self.controller.Kp        = float(self.datastore.read("settings.rw_kp",      default=self.controller.Kp))
-        self.controller.Kd        = float(self.datastore.read("settings.rw_kd",      default=self.controller.Kd))
-        self.controller.max_value = float(self.datastore.read("settings.rw_max_rpm", default=self.controller.max_value))
         self._store()
-        quat, pos = self._read()
+        quat, pos, yaw_rate, yaw = self._read()
         az_err, _ = compute_error(quat, pos)
-        control_signal = self.controller.output(az_err) + 1700.0
-        logger.info("yaw_error:%f, control signal: %f", az_err, control_signal)
+        control_signal = self.controller.output(yaw, yaw_rate) + 1700.0
+        logger.info("yaw_error:%f, control signal: %f", yaw, control_signal)
         self.motor.set_rpm(int(control_signal))
 
     def teardown(self) -> None:
@@ -96,7 +92,9 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        return quat, pos
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))                                 )))
+        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        return quat, pos, yaw_rate, yaw
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
