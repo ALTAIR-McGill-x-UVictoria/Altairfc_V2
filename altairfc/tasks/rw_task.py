@@ -38,7 +38,7 @@ class RWTask(BaseTask):
             return
 
         logger.info("Bringing reaction wheel up to speed")
-        self._hold(self.motor.set_rpm, 3500, duration=5.0)
+        self._hold(self.motor.set_rpm, 1700, duration=5.0)
         while not self._stop_event.is_set():
             logger.info("Stabilizing Payload")
             self._store()
@@ -59,7 +59,8 @@ class RWTask(BaseTask):
         self._store()
         quat, pos = self._read()
         az_err, _ = compute_error(quat, pos)
-        control_signal = self.controller.output(az_err) + 1700
+        control_signal = self.controller.output(az_err) + 1700.0
+        logger.info("yaw_error:%f, control signal: %f", az_err, control_signal)
         self.motor.set_rpm(int(control_signal))
 
     def teardown(self) -> None:

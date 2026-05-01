@@ -82,7 +82,7 @@ baud = 115200
 Kp = 12740.0
 Kd = 1092.0
 Ki = 0.0
-max_rpm = 3400.0
+max_rpm = 24000.0
 min_rpm = 0.0
 
 

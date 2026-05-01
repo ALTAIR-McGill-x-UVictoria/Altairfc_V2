@@ -10,7 +10,7 @@ class VESCObject:
         self.buffer = b""
 
     def set_rpm(self, rpm):
-        pkt = encode(SetRPM(rpm))
+        pkt = encode(SetRPM(rpm*7))
         self.port.write(pkt)
 
     def set_current(self, current): # Current in milli Amps
