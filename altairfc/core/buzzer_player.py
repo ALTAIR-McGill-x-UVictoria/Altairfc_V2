@@ -63,7 +63,7 @@ class BuzzerPlayer:
             self._queue.put_nowait(_SENTINEL)
         self._thread.join(timeout=3.0)
         if self._gpio_ok and self._pi is not None:
-            self._pi.hardware_PWM(self._pin, 0, 0)
+            self._pi.set_PWM_dutycycle(self._pin, 0)
             self._pi.stop()
 
     def play(self, tune: list[Note]) -> None:
@@ -88,10 +88,10 @@ class BuzzerPlayer:
         for freq, duration in tune:
             if self._gpio_ok and self._pi is not None:
                 if freq > 0:
-                    # hardware_PWM: dutycycle is 0–1000000 (50% = 500000)
-                    self._pi.hardware_PWM(self._pin, freq, 500000)
+                    self._pi.set_PWM_frequency(self._pin, freq)
+                    self._pi.set_PWM_dutycycle(self._pin, 128)  # 50% of 0-255
                 else:
-                    self._pi.hardware_PWM(self._pin, 0, 0)
+                    self._pi.set_PWM_dutycycle(self._pin, 0)
             time.sleep(duration)
         if self._gpio_ok and self._pi is not None:
-            self._pi.hardware_PWM(self._pin, 0, 0)
+            self._pi.set_PWM_dutycycle(self._pin, 0)
