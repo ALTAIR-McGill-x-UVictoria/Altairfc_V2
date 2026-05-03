@@ -92,7 +92,7 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))                                 )))
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)) 
         yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         return quat, pos, yaw_rate, yaw
 
