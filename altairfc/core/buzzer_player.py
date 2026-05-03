@@ -33,18 +33,20 @@ class BuzzerPlayer:
     def __init__(self) -> None:
         self._queue: queue.Queue = queue.Queue(maxsize=1)
         self._thread = threading.Thread(target=self._loop, name="buzzer", daemon=True)
-        self._pwm = None
+        self._pi = None
+        self._pin: int = 0
         self._gpio_ok = False
 
     def start(self) -> None:
         try:
-            import RPi.GPIO as GPIO
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setwarnings(False)
+            import pigpio
             from drivers.buzzer import GPIO_PIN
-            GPIO.setup(GPIO_PIN, GPIO.OUT)
-            self._pwm = GPIO.PWM(GPIO_PIN, 440)
-            self._pwm.start(0)
+            self._pi = pigpio.pi()
+            if not self._pi.connected:
+                raise RuntimeError("pigpio daemon not running — start with: sudo pigpiod")
+            self._pin = GPIO_PIN
+            self._pi.set_mode(self._pin, pigpio.OUTPUT)
+            self._pi.write(self._pin, 0)
             self._gpio_ok = True
         except Exception as e:
             logger.warning("BuzzerPlayer: GPIO unavailable (%s) — tunes will be silent", e)
@@ -54,17 +56,15 @@ class BuzzerPlayer:
         try:
             self._queue.put_nowait(_SENTINEL)
         except queue.Full:
-            # Drain then re-insert sentinel so the loop exits
             try:
                 self._queue.get_nowait()
             except queue.Empty:
                 pass
             self._queue.put_nowait(_SENTINEL)
         self._thread.join(timeout=3.0)
-        if self._gpio_ok and self._pwm is not None:
-            self._pwm.stop()
-            import RPi.GPIO as GPIO
-            GPIO.cleanup()
+        if self._gpio_ok and self._pi is not None:
+            self._pi.hardware_PWM(self._pin, 0, 0)
+            self._pi.stop()
 
     def play(self, tune: list[Note]) -> None:
         """Queue a tune, discarding any previously queued (but not yet started) tune."""
@@ -86,12 +86,12 @@ class BuzzerPlayer:
 
     def _play_blocking(self, tune: list[Note]) -> None:
         for freq, duration in tune:
-            if self._gpio_ok and self._pwm is not None:
+            if self._gpio_ok and self._pi is not None:
                 if freq > 0:
-                    self._pwm.ChangeFrequency(freq)
-                    self._pwm.ChangeDutyCycle(50)
+                    # hardware_PWM: dutycycle is 0–1000000 (50% = 500000)
+                    self._pi.hardware_PWM(self._pin, freq, 500000)
                 else:
-                    self._pwm.ChangeDutyCycle(0)
+                    self._pi.hardware_PWM(self._pin, 0, 0)
             time.sleep(duration)
-        if self._gpio_ok and self._pwm is not None:
-            self._pwm.ChangeDutyCycle(0)
+        if self._gpio_ok and self._pi is not None:
+            self._pi.hardware_PWM(self._pin, 0, 0)
