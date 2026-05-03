@@ -37,39 +37,34 @@ REST = 0
 # Tunes
 # ---------------------------------------------------------------------------
 
+# G major: G4=392→400 Hz, B4=494→500 Hz, D5=587→600 Hz (pigpio rounds cleanly)
+
 d = 0.1
-dd = d
 
 TUNE_PENDING: list[Note] = [
-    (B[4], d),
+    (G[4], d),
     (REST, d),
-    (B[4], d),
+    (G[4], d),
     (REST, d),
-    (B[4], d),
+    (G[4], d),
     (REST, d),
-    (B[4], d),
+    (G[4], d),
 ]
 
 TUNE_SUCCESS: list[Note] = [
+    (G[4], d),
     (REST, d),
-    (B[4], dd),
-    (REST, dd),
-    (Fs[4], dd),
-    (REST, dd),
-    (Ds[4], dd),
-    (REST, dd),
-    (Fs[4], dd),
-    (REST, dd),
-    (B[4], dd),
-    (REST, dd),
-    (Fs[5], dd),
+    (B[4], d),
+    (REST, d),
+    (D[5], d),
+    (REST, d),
+    (G[5], d * 2),
 ]
-
 
 TUNE_SUCCESS_REVERSE: list[Note] = list(reversed(TUNE_SUCCESS))
 
 TUNE_PING: list[Note] = [
-    (A[5],  0.06),
-    (REST,  0.04),
-    (Ds[6], 0.10),
+    (D[5], 0.06),
+    (REST, 0.04),
+    (G[5], 0.10),
 ]
