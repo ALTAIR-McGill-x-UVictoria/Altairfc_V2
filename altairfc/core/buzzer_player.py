@@ -36,6 +36,7 @@ class BuzzerPlayer:
         self._pi = None
         self._pin: int = 0
         self._gpio_ok = False
+        self._freq_cache: dict[int, int] = {}
 
     def start(self) -> None:
         try:
@@ -47,10 +48,26 @@ class BuzzerPlayer:
             self._pin = GPIO_PIN
             self._pi.set_mode(self._pin, pigpio.OUTPUT)
             self._pi.write(self._pin, 0)
+            self._freq_cache = self._build_freq_cache()
             self._gpio_ok = True
         except Exception as e:
             logger.warning("BuzzerPlayer: GPIO unavailable (%s) — tunes will be silent", e)
         self._thread.start()
+
+    def _build_freq_cache(self) -> dict[int, int]:
+        """Query pigpio for the actual achievable frequency closest to each note."""
+        import drivers.buzzer as _buz
+        targets: set[int] = set()
+        for obj in vars(_buz).values():
+            if isinstance(obj, dict):
+                targets.update(v for v in obj.values() if isinstance(v, int) and v > 0)
+        cache: dict[int, int] = {}
+        for freq in targets:
+            self._pi.set_PWM_frequency(self._pin, freq)
+            cache[freq] = self._pi.get_PWM_frequency(self._pin)
+        self._pi.set_PWM_dutycycle(self._pin, 0)
+        logger.debug("Buzzer freq cache built: %s", cache)
+        return cache
 
     def stop(self) -> None:
         try:
@@ -88,7 +105,8 @@ class BuzzerPlayer:
         for freq, duration in tune:
             if self._gpio_ok and self._pi is not None:
                 if freq > 0:
-                    self._pi.set_PWM_frequency(self._pin, freq)
+                    actual = self._freq_cache.get(freq, freq)
+                    self._pi.set_PWM_frequency(self._pin, actual)
                     self._pi.set_PWM_dutycycle(self._pin, 128)  # 50% of 0-255
                 else:
                     self._pi.set_PWM_dutycycle(self._pin, 0)

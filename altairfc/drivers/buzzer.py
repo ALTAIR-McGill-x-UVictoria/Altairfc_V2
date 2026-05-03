@@ -37,20 +37,34 @@ REST = 0
 # Tunes
 # ---------------------------------------------------------------------------
 
+d = 0.1
+dd = d
+
 TUNE_PENDING: list[Note] = [
-    (A[4],  0.15),
-    (REST,  0.10),
-    (A[4],  0.15),
-    (REST,  0.10),
-    (A[4],  0.15),
+    (B[4], d),
+    (REST, d),
+    (B[4], d),
+    (REST, d),
+    (B[4], d),
+    (REST, d),
+    (B[4], d),
 ]
 
 TUNE_SUCCESS: list[Note] = [
-    (C[5],  0.12),
-    (E[5],  0.12),
-    (G[5],  0.12),
-    (C[6],  0.25),
+    (REST, d),
+    (B[4], dd),
+    (REST, dd),
+    (Fs[4], dd),
+    (REST, dd),
+    (Ds[4], dd),
+    (REST, dd),
+    (Fs[4], dd),
+    (REST, dd),
+    (B[4], dd),
+    (REST, dd),
+    (Fs[5], dd),
 ]
+
 
 TUNE_SUCCESS_REVERSE: list[Note] = list(reversed(TUNE_SUCCESS))
 
