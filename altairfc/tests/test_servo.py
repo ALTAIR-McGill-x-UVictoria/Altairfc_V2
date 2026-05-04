@@ -1,22 +1,22 @@
-import RPi.GPIO as GPIO
+import pigpio
 import time
 
 SERVO_PIN = 26
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(SERVO_PIN, GPIO.OUT)
+# Connect to pigpio daemon
+pi = pigpio.pi()
 
-pwm = GPIO.PWM(SERVO_PIN, 50)
-pwm.start(0)
+if not pi.connected:
+    print("Failed to connect to pigpio daemon. Did you run 'sudo pigpiod'?")
+    exit()
 
 def set_angle(angle):
-    # Map angle (0–180) to duty cycle (~2.5–12.5)
-    duty = 2.5 + (angle / 180.0) * 10
-    GPIO.output(SERVO_PIN, True)
-    pwm.ChangeDutyCycle(duty)
-    time.sleep(0.5)
-    GPIO.output(SERVO_PIN, False)
-    pwm.ChangeDutyCycle(0)
+    # Clamp angle
+    angle = max(0, min(180, angle))
+    
+    # Convert angle to pulse width (500–2500 µs typical range)
+    pulsewidth = 500 + (angle / 180.0) * 2000
+    pi.set_servo_pulsewidth(SERVO_PIN, pulsewidth)
 
 try:
     while True:
@@ -35,5 +35,6 @@ try:
 except KeyboardInterrupt:
     print("Stopping...")
 
-pwm.stop()
-GPIO.cleanup()
+# Turn off servo signal
+pi.set_servo_pulsewidth(SERVO_PIN, 0)
+pi.stop()
