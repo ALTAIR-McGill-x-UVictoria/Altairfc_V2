@@ -131,19 +131,22 @@ class RWTask(BaseTask):
 
     def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
         target_heading = yaw + az_err
-        source_angle_deg = 90.0 - math.degrees(pitch_err_rad)
-        source_angle_error_deg = math.degrees(pitch_err_rad)
+        desired_deflection_deg = -math.degrees(pitch_err_rad)
+        # Physical limit: servo ±90° at 4:1 → source ±22.5° from nadir
+        achieved_deflection_deg = float(np.clip(desired_deflection_deg, -22.5, 22.5))
+        source_angle_error_deg = desired_deflection_deg - achieved_deflection_deg
         self.datastore.write("pointing.target_heading_rad",     target_heading)
         self.datastore.write("pointing.heading_error_rad",      az_err)
-        self.datastore.write("pointing.source_angle_deg",       source_angle_deg)
+        self.datastore.write("pointing.source_angle_deg",       achieved_deflection_deg)
         self.datastore.write("pointing.source_angle_error_deg", source_angle_error_deg)
 
     def _set_servo(self, pitch_err_rad: float) -> None:
         if self._pi is None:
             return
-        # pitch_err_rad = 0 → GS directly below → source at 0° from nadir → servo at 90°
-        source_angle_deg = 90.0 - math.degrees(pitch_err_rad)
-        servo_angle_deg = np.clip(source_angle_deg * 4.0, 0.0, 180.0)
+        # Desired source deflection from nadir (clamped to physical ±22.5° range)
+        source_deflection_deg = float(np.clip(-math.degrees(pitch_err_rad), -22.5, 22.5))
+        # 4:1 gear ratio → servo deflects 4× more than source; neutral at 90°
+        servo_angle_deg = 90.0 + source_deflection_deg * 4.0
         pulsewidth = 500 + (servo_angle_deg / 180.0) * 2000
         self._pi.set_servo_pulsewidth(SERVO_PIN, int(pulsewidth))
 
