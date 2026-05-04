@@ -3,15 +3,13 @@ from __future__ import annotations
 import logging
 import math
 import time
-import numpy as np
 from config.settings import SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
+from drivers.servo import ServoPointer
 from controls.error_computation import compute_error
 from controls.controller import Controller
-
-SERVO_PIN = 26
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +31,8 @@ class RWTask(BaseTask):
 
     def setup(self) -> None:
         self.motor = None
-        self._pi = None
-        try:
-            import pigpio
-            self._pi = pigpio.pi()
-            if not self._pi.connected:
-                logger.error("Failed to connect to pigpio daemon — servo disabled")
-                self._pi = None
-            else:
-                logger.info("pigpio connected; servo on GPIO %d", SERVO_PIN)
-        except Exception as e:
-            logger.error("pigpio init failed: %s — servo disabled", e)
+        self._servo = ServoPointer()
+        self._servo.connect()
 
         try:
             self.motor = VESCObject(self._vesc_port)
@@ -73,7 +62,7 @@ class RWTask(BaseTask):
             logger.info("gs_pos: no GS GPS data received yet")
 
         self._write_pointing(yaw, az_err, pitch_err)
-        self._set_servo(pitch_err)
+        self._servo.set_pitch_error(pitch_err)
 
         if self.motor is None:
             return
@@ -85,9 +74,7 @@ class RWTask(BaseTask):
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_rpm(0)
-        if self._pi is not None:
-            self._pi.set_servo_pulsewidth(SERVO_PIN, 0)
-            self._pi.stop()
+        self._servo.disconnect()
 
     def _store(self):
         data = self.motor.get_data(timeout=0.3)
@@ -132,23 +119,12 @@ class RWTask(BaseTask):
     def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
         target_heading = yaw + az_err
         desired_deflection_deg = -math.degrees(pitch_err_rad)
-        # Physical limit: servo ±90° at 4:1 → source ±22.5° from nadir
-        achieved_deflection_deg = float(np.clip(desired_deflection_deg, -22.5, 22.5))
+        achieved_deflection_deg = self._servo.achieved_deflection_deg(pitch_err_rad)
         source_angle_error_deg = desired_deflection_deg - achieved_deflection_deg
         self.datastore.write("pointing.target_heading_rad",     target_heading)
         self.datastore.write("pointing.heading_error_rad",      az_err)
         self.datastore.write("pointing.source_angle_deg",       achieved_deflection_deg)
         self.datastore.write("pointing.source_angle_error_deg", source_angle_error_deg)
-
-    def _set_servo(self, pitch_err_rad: float) -> None:
-        if self._pi is None:
-            return
-        # Desired source deflection from nadir (clamped to physical ±22.5° range)
-        source_deflection_deg = float(np.clip(-math.degrees(pitch_err_rad), -22.5, 22.5))
-        # 4:1 gear ratio → servo deflects 4× more than source; neutral at 90°
-        servo_angle_deg = 90.0 + source_deflection_deg * 4.0
-        pulsewidth = 500 + (servo_angle_deg / 180.0) * 2000
-        self._pi.set_servo_pulsewidth(SERVO_PIN, int(pulsewidth))
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
