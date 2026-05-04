@@ -64,6 +64,9 @@ log_level = "INFO"
 monitor_interval_s = 5.0
 watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
 
+[pointing]
+enabled = true
+
 [ground_station]
 latitude = 45.5400
 longitude = -73.5800

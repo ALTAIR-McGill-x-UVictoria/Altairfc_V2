@@ -23,9 +23,11 @@ class RWTask(BaseTask):
         datastore: DataStore,
         vesc_port: SerialPortConfig,
         controller_config: list,
+        pointing_enabled: bool = True,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
+        self._pointing_enabled = pointing_enabled
         self.controller = Controller(controller_config, period_s)
         
 
@@ -61,8 +63,9 @@ class RWTask(BaseTask):
         else:
             logger.info("gs_pos: no GS GPS data received yet")
 
-        self._write_pointing(yaw, az_err, pitch_err)
-        self._servo.set_pitch_error(pitch_err)
+        if self._pointing_enabled:
+            self._write_pointing(yaw, az_err, pitch_err)
+            self._servo.set_pitch_error(pitch_err)
 
         if self.motor is None:
             return

@@ -135,6 +135,7 @@ def main() -> None:
             datastore=datastore,
             vesc_port=config.rw_esc,
             controller_config=config.controller["reaction_wheel"],
+            pointing_enabled=config.pointing.enabled,
         )
     )
     
