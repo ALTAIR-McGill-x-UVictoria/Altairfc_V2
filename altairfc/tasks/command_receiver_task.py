@@ -126,6 +126,13 @@ class CommandReceiverTask(BaseTask):
                         stage, STAGE_ARMED,
                     )
 
+        elif (ds_keys := getattr(type(command), "DATASTORE_KEYS", None)) is not None:
+            for fname, key in ds_keys.items():
+                self.datastore.write(key, float(getattr(command, fname)))
+            logger.info(
+                "CommandReceiverTask: %s → wrote %d keys", type(command).__name__, len(ds_keys)
+            )
+
         elif getattr(type(command), "SETTING_DISPATCH", False):
             from telemetry.commands.update_setting import SETTING_KEYS  # local import avoids circular
             field_id = int(getattr(command, "field_id", -1))

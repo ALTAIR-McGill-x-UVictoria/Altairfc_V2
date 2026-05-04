@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 import numpy as np
 from config.settings import SerialPortConfig
@@ -9,6 +10,8 @@ from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
 from controls.error_computation import compute_error
 from controls.controller import Controller
+
+SERVO_PIN = 26
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,18 @@ class RWTask(BaseTask):
 
     def setup(self) -> None:
         self.motor = None
+        self._pi = None
+        try:
+            import pigpio
+            self._pi = pigpio.pi()
+            if not self._pi.connected:
+                logger.error("Failed to connect to pigpio daemon — servo disabled")
+                self._pi = None
+            else:
+                logger.info("pigpio connected; servo on GPIO %d", SERVO_PIN)
+        except Exception as e:
+            logger.error("pigpio init failed: %s — servo disabled", e)
+
         try:
             self.motor = VESCObject(self._vesc_port)
             logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
@@ -53,15 +68,19 @@ class RWTask(BaseTask):
             return
         logger.info("PID running")
         self._store()
-        quat, pos, yaw_rate, yaw = self._read()
-        az_err, _ = compute_error(quat, pos)
-        control_signal = self.controller.output(yaw, yaw_rate) + 1700.0
-        logger.info("yaw_error:%f, control signal: %f", yaw, control_signal)
+        quat, pos, gs_pos, yaw_rate = self._read()
+        az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
+        control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
+        logger.info("az_err:%f, control signal: %f", az_err, control_signal)
         self.motor.set_rpm(int(control_signal))
+        self._set_servo(pitch_err)
 
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_rpm(0)
+        if self._pi is not None:
+            self._pi.set_servo_pulsewidth(SERVO_PIN, 0)
+            self._pi.stop()
 
     def _store(self):
         data = self.motor.get_data(timeout=0.3)
@@ -92,9 +111,24 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)) 
-        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
-        return quat, pos, yaw_rate, yaw
+        gs_lat = self.datastore.read("command.gs_lat", default=None)
+        gs_lon = self.datastore.read("command.gs_lon", default=None)
+        gs_alt = self.datastore.read("command.gs_alt", default=None)
+        gs_pos = (
+            [float(gs_lat), float(gs_lon), float(gs_alt)]
+            if gs_lat is not None else None
+        )
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
+        return quat, pos, gs_pos, yaw_rate
+
+    def _set_servo(self, pitch_err_rad: float) -> None:
+        if self._pi is None:
+            return
+        # pitch_err_rad = 0 → GS directly below → source at 0° from nadir → servo at 90°
+        source_angle_deg = 90.0 - math.degrees(pitch_err_rad)
+        servo_angle_deg = np.clip(source_angle_deg * 4.0, 0.0, 180.0)
+        pulsewidth = 500 + (servo_angle_deg / 180.0) * 2000
+        self._pi.set_servo_pulsewidth(SERVO_PIN, int(pulsewidth))
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()

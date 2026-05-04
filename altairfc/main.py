@@ -54,6 +54,7 @@ import telemetry.commands.arm            # noqa: F401
 import telemetry.commands.launch_ok      # noqa: F401
 import telemetry.commands.ping           # noqa: F401
 import telemetry.commands.update_setting  # noqa: F401
+import telemetry.commands.gs_gps         # noqa: F401
 
 from tasks.gps_task import GpsTask
 from tasks.mavlink_task import MavlinkTask
