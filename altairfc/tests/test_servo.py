@@ -22,15 +22,15 @@ try:
     while True:
         print("0°")
         set_angle(0)
-        time.sleep(1)
+        time.sleep(2)
 
-        print("90°")
-        set_angle(90)
-        time.sleep(1)
-
-        print("180°")
+        print("180")
         set_angle(180)
-        time.sleep(1)
+        time.sleep(2)
+
+        print("90")
+        set_angle(90)
+        time.sleep(2)
 
 except KeyboardInterrupt:
     print("Stopping...")
