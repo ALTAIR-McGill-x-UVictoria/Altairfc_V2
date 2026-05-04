@@ -68,7 +68,7 @@ class RWTask(BaseTask):
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
 
         if gs_pos is not None:
-            logger.info("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
+            logger.debug("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
         else:
             logger.info("gs_pos: no GS GPS data received yet")
 
