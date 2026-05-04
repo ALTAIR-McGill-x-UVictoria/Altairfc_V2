@@ -48,6 +48,7 @@ import telemetry.packets.environment     # noqa: F401
 import telemetry.packets.events          # noqa: F401
 import telemetry.packets.ack             # noqa: F401
 import telemetry.packets.flight_settings  # noqa: F401
+import telemetry.packets.pointing         # noqa: F401
 
 # Import command modules so their @register decorators populate command_registry
 import telemetry.commands.arm            # noqa: F401

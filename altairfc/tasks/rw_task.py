@@ -68,12 +68,17 @@ class RWTask(BaseTask):
             return
         logger.info("PID running")
         self._store()
-        quat, pos, gs_pos, yaw_rate = self._read()
+        quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
         control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
         logger.info("az_err:%f, control signal: %f", az_err, control_signal)
+        if gs_pos is not None:
+            logger.info("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
+        else:
+            logger.info("gs_pos: no GS GPS data received yet")
         self.motor.set_rpm(int(control_signal))
         self._set_servo(pitch_err)
+        self._write_pointing(yaw, az_err, pitch_err)
 
     def teardown(self) -> None:
         if self.motor is not None:
@@ -119,7 +124,17 @@ class RWTask(BaseTask):
             if gs_lat is not None else None
         )
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
-        return quat, pos, gs_pos, yaw_rate
+        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        return quat, pos, gs_pos, yaw_rate, yaw
+
+    def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
+        target_heading = yaw + az_err
+        source_angle_deg = 90.0 - math.degrees(pitch_err_rad)
+        source_angle_error_deg = math.degrees(pitch_err_rad)
+        self.datastore.write("pointing.target_heading_rad",     target_heading)
+        self.datastore.write("pointing.heading_error_rad",      az_err)
+        self.datastore.write("pointing.source_angle_deg",       source_angle_deg)
+        self.datastore.write("pointing.source_angle_error_deg", source_angle_error_deg)
 
     def _set_servo(self, pitch_err_rad: float) -> None:
         if self._pi is None:
