@@ -64,21 +64,23 @@ class RWTask(BaseTask):
             time.sleep(0.05)
 
     def execute(self) -> None:
-        if self.motor is None:
-            return
-        logger.info("PID running")
-        self._store()
         quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
-        control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
-        logger.info("az_err:%f, control signal: %f", az_err, control_signal)
+
         if gs_pos is not None:
             logger.info("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
         else:
             logger.info("gs_pos: no GS GPS data received yet")
-        self.motor.set_rpm(int(control_signal))
-        self._set_servo(pitch_err)
+
         self._write_pointing(yaw, az_err, pitch_err)
+        self._set_servo(pitch_err)
+
+        if self.motor is None:
+            return
+        self._store()
+        control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
+        logger.info("az_err:%f, control signal: %f", az_err, control_signal)
+        self.motor.set_rpm(int(control_signal))
 
     def teardown(self) -> None:
         if self.motor is not None:
