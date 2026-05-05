@@ -1,4 +1,4 @@
-\[mavlink]
+[mavlink]
 port = "/dev/serial/by-id/usb-Auterion_PX4_FMU_v6X.x_0-if00"
 baud = 115200
 
@@ -69,7 +69,7 @@ longitude = -73.5800
 altitude = 55.0
 
 [rw_esc]
-port = "/dev/ttyACM0"
+port = "/dev/ttyACM1"
 baud = 115200
 
 [mm_esc]

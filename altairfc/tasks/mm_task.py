@@ -54,7 +54,9 @@ class MMTask(BaseTask):
         self.controller.max_value = float(self.datastore.read("settings.mm_max_current", default=self.controller.max_value))
         motor_speed_err = float(self.datastore.read("rw.rpm", default=0.0)) - 1700
         control_signal = self.controller.output(motor_speed_err)
-        self.motor.set_current(control_signal)
+        self.motor.set_current(10)
+        time.sleep(0.1)
+        self.motor.set_current(0)
 
     def teardown(self) -> None:
         if self.motor is not None:
