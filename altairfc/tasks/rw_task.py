@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from config.settings import SerialPortConfig
+ from config.settings import GroundStationConfig, SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
@@ -23,10 +23,16 @@ class RWTask(BaseTask):
         datastore: DataStore,
         vesc_port: SerialPortConfig,
         controller_config: list,
+        ground_station: GroundStationConfig,
         pointing_enabled: bool = True,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
+        self._default_gs_pos = [
+            ground_station.latitude,
+            ground_station.longitude,
+            ground_station.altitude,
+        ]
         self._pointing_enabled = pointing_enabled
         self.controller = Controller(controller_config, period_s)
         
@@ -58,10 +64,7 @@ class RWTask(BaseTask):
         quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
 
-        if gs_pos is not None:
-            logger.debug("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
-        else:
-            logger.info("gs_pos: no GS GPS data received yet")
+        logger.debug("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
 
         if self._pointing_enabled:
             self._write_pointing(yaw, az_err, pitch_err)
@@ -70,8 +73,6 @@ class RWTask(BaseTask):
         if self.motor is None:
             return
         self._store()
-        quat, pos, yaw_rate, yaw = self._read()
-        az_err, _ = compute_error(quat, pos)
         control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
         logger.info("yaw_error:%f, control signal: %f", az_err, control_signal)
         self.motor.set_rpm(int(control_signal))
@@ -115,7 +116,7 @@ class RWTask(BaseTask):
         gs_alt = self.datastore.read("command.gs_alt", default=None)
         gs_pos = (
             [float(gs_lat), float(gs_lon), float(gs_alt)]
-            if gs_lat is not None else None
+            if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
         )
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))

@@ -66,6 +66,13 @@ class PointingConfig:
 
 
 @dataclass
+class GroundStationConfig:
+    latitude: float
+    longitude: float
+    altitude: float
+
+
+@dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
@@ -75,14 +82,16 @@ class SystemConfig:
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     pointing: PointingConfig = field(default_factory=PointingConfig)
+    ground_station: GroundStationConfig = field(
+        default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
+    )
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
     watchdog_sec: float = 30.0
 
     @classmethod
     def from_toml(cls, path: Path) -> "SystemConfig":
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
+        data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
 
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
@@ -124,6 +133,13 @@ class SystemConfig:
         pointing_raw = data.get("pointing", {})
         pointing = PointingConfig(enabled=pointing_raw.get("enabled", True))
 
+        gs_raw = data.get("ground_station", {})
+        ground_station = GroundStationConfig(
+            latitude=gs_raw.get("latitude", 0.0),
+            longitude=gs_raw.get("longitude", 0.0),
+            altitude=gs_raw.get("altitude", 0.0),
+        )
+
         system = data.get("system", {})
         return cls(
             mavlink=mavlink,
@@ -134,6 +150,7 @@ class SystemConfig:
             tasks=tasks,
             flight_stage=flight_stage,
             pointing=pointing,
+            ground_station=ground_station,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s", 5.0),
             watchdog_sec=system.get("watchdog_sec", 30.0),
