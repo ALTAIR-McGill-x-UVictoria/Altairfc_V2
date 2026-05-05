@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from typing import TYPE_CHECKING
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -9,6 +10,9 @@ from telemetry.command_registry import command_registry
 from telemetry.packets.ack import AckPacket
 from telemetry.registry import packet_registry
 from telemetry.serializer import PacketSerializer, SYNC_BYTE, HEADER_SIZE, CRC_SIZE, _HEADER_STRUCT
+
+if TYPE_CHECKING:
+    from core.buzzer_player import BuzzerPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +45,14 @@ class CommandReceiverTask(BaseTask):
         period_s: float,
         datastore: DataStore,
         transport,  # SerialTransport — no type import to avoid circular deps
+        buzzer: BuzzerPlayer | None = None,
     ) -> None:
         super().__init__(name, period_s, datastore)
         self._transport = transport
         self._serializer = PacketSerializer()
         self._buf = bytearray()
-        # Pre-compiled struct for the ACK packet (looked up once from registry)
         self._ack_seq: int = 0
+        self._buzzer = buzzer
 
     def setup(self) -> None:
         # Transport already opened by TelemetryTask — do not call transport.open() here
@@ -121,6 +126,13 @@ class CommandReceiverTask(BaseTask):
                         stage, STAGE_ARMED,
                     )
 
+        elif (ds_keys := getattr(type(command), "DATASTORE_KEYS", None)) is not None:
+            for fname, key in ds_keys.items():
+                self.datastore.write(key, float(getattr(command, fname)))
+            logger.info(
+                "CommandReceiverTask: %s → wrote %d keys", type(command).__name__, len(ds_keys)
+            )
+
         elif getattr(type(command), "SETTING_DISPATCH", False):
             from telemetry.commands.update_setting import SETTING_KEYS  # local import avoids circular
             field_id = int(getattr(command, "field_id", -1))
@@ -142,6 +154,9 @@ class CommandReceiverTask(BaseTask):
         else:
             # No DataStore key — command is acknowledged at the transport layer only (e.g. PING)
             logger.info("CommandReceiverTask: %s received (no DataStore key)", type(command).__name__)
+            if self._buzzer is not None:
+                from drivers.buzzer import TUNE_PING
+                self._buzzer.play(TUNE_PING)
 
         ack = AckPacket(cmd_id=cmd_id, cmd_seq=cmd_seq, status=status)
         ack_frame = self._serializer.pack(ack, seq=self._ack_seq)

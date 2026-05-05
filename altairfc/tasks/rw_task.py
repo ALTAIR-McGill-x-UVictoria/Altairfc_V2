@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
-import numpy as np
 from config.settings import SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
+from drivers.servo import ServoPointer
 from controls.error_computation import compute_error
 from controls.controller import Controller
 
@@ -22,14 +23,19 @@ class RWTask(BaseTask):
         datastore: DataStore,
         vesc_port: SerialPortConfig,
         controller_config: list,
+        pointing_enabled: bool = True,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
+        self._pointing_enabled = pointing_enabled
         self.controller = Controller(controller_config, period_s)
         
 
     def setup(self) -> None:
         self.motor = None
+        self._servo = ServoPointer()
+        self._servo.connect()
+
         try:
             self.motor = VESCObject(self._vesc_port)
             logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
@@ -49,9 +55,20 @@ class RWTask(BaseTask):
             time.sleep(0.05)
 
     def execute(self) -> None:
+        quat, pos, gs_pos, yaw_rate, yaw = self._read()
+        az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
+
+        if gs_pos is not None:
+            logger.debug("gs_pos: lat=%f lon=%f alt=%f", gs_pos[0], gs_pos[1], gs_pos[2])
+        else:
+            logger.info("gs_pos: no GS GPS data received yet")
+
+        if self._pointing_enabled:
+            self._write_pointing(yaw, az_err, pitch_err)
+            self._servo.set_pitch_error(pitch_err)
+
         if self.motor is None:
             return
-        logger.info("PID running")
         self._store()
         quat, pos, yaw_rate, yaw = self._read()
         az_err, _ = compute_error(quat, pos)
@@ -62,6 +79,7 @@ class RWTask(BaseTask):
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_rpm(0)
+        self._servo.disconnect()
 
     def _store(self):
         data = self.motor.get_data(timeout=0.3)
@@ -92,9 +110,26 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))                                 )))
+        gs_lat = self.datastore.read("command.gs_lat", default=None)
+        gs_lon = self.datastore.read("command.gs_lon", default=None)
+        gs_alt = self.datastore.read("command.gs_alt", default=None)
+        gs_pos = (
+            [float(gs_lat), float(gs_lon), float(gs_alt)]
+            if gs_lat is not None else None
+        )
+        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
-        return quat, pos, yaw_rate, yaw
+        return quat, pos, gs_pos, yaw_rate, yaw
+
+    def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
+        target_heading = yaw + az_err
+        desired_deflection_deg = -math.degrees(pitch_err_rad)
+        achieved_deflection_deg = self._servo.achieved_deflection_deg(pitch_err_rad)
+        source_angle_error_deg = desired_deflection_deg - achieved_deflection_deg
+        self.datastore.write("pointing.target_heading_rad",     target_heading)
+        self.datastore.write("pointing.heading_error_rad",      az_err)
+        self.datastore.write("pointing.source_angle_deg",       achieved_deflection_deg)
+        self.datastore.write("pointing.source_angle_error_deg", source_angle_error_deg)
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()

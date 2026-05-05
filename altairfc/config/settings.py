@@ -61,6 +61,11 @@ class FlightStageConfig:
 
 
 @dataclass
+class PointingConfig:
+    enabled: bool = True
+
+
+@dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig
@@ -69,6 +74,7 @@ class SystemConfig:
     controller: dict[str, ControllerConfig]
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
+    pointing: PointingConfig = field(default_factory=PointingConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
     watchdog_sec: float = 30.0
@@ -115,6 +121,9 @@ class SystemConfig:
         )
 
 
+        pointing_raw = data.get("pointing", {})
+        pointing = PointingConfig(enabled=pointing_raw.get("enabled", True))
+
         system = data.get("system", {})
         return cls(
             mavlink=mavlink,
@@ -124,6 +133,7 @@ class SystemConfig:
             controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,
+            pointing=pointing,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s", 5.0),
             watchdog_sec=system.get("watchdog_sec", 30.0),

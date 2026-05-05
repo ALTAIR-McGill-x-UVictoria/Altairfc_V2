@@ -33,6 +33,8 @@ from core.datastore import DataStore
 from core.lifecycle import install_signal_handlers, shutdown_event
 from core.scheduler import TaskScheduler
 from core.watchdog import WatchdogThread
+from core.buzzer_player import BuzzerPlayer
+from drivers.buzzer import TUNE_PENDING, TUNE_SUCCESS, TUNE_SUCCESS_REVERSE
 
 # Import all packet modules so their @register decorators fire before
 # TelemetryTask.execute() iterates the registry.
@@ -46,12 +48,14 @@ import telemetry.packets.environment     # noqa: F401
 import telemetry.packets.events          # noqa: F401
 import telemetry.packets.ack             # noqa: F401
 import telemetry.packets.flight_settings  # noqa: F401
+import telemetry.packets.pointing         # noqa: F401
 
 # Import command modules so their @register decorators populate command_registry
 import telemetry.commands.arm            # noqa: F401
 import telemetry.commands.launch_ok      # noqa: F401
 import telemetry.commands.ping           # noqa: F401
 import telemetry.commands.update_setting  # noqa: F401
+import telemetry.commands.gs_gps         # noqa: F401
 
 from tasks.gps_task import GpsTask
 from tasks.mavlink_task import MavlinkTask
@@ -67,6 +71,10 @@ from telemetry.transport import SerialTransport
 
 
 def main() -> None:
+    buzzer = BuzzerPlayer()
+    buzzer.start()
+    buzzer.play(TUNE_PENDING)
+
     build_script = Path(__file__).parent / "drivers" / "build_all.sh"
     logger.info("Building C drivers via %s", build_script)
     subprocess.run(["bash", str(build_script)], check=True)
@@ -119,6 +127,7 @@ def main() -> None:
             datastore=datastore,
             vesc_port=config.rw_esc,
             controller_config=config.controller["reaction_wheel"],
+            pointing_enabled=config.pointing.enabled,
         )
     )
     
@@ -170,6 +179,7 @@ def main() -> None:
             period_s=config.tasks["command_receiver"].period_s,
             datastore=datastore,
             transport=telemetry_transport,
+            buzzer=buzzer,
         )
     )
 
@@ -205,6 +215,7 @@ def main() -> None:
     install_signal_handlers(scheduler) # handles CTRL-C and kill signals for graceful shutdown
     logger.info("Starting ALTAIR V2 flight computer")
     scheduler.start_all()
+    buzzer.play(TUNE_SUCCESS)
 
     watchdog = WatchdogThread(scheduler, watchdog_sec=config.watchdog_sec)
     watchdog.start()
@@ -212,8 +223,10 @@ def main() -> None:
     # Block main thread until SIGINT/SIGTERM or a critical task failure
     scheduler.shutdown_event.wait()
     logger.info("Shutdown event received — stopping all tasks")
+    buzzer.play(TUNE_SUCCESS_REVERSE)
     watchdog.stop()
     scheduler.stop_all()
+    buzzer.stop()
     logger.info("ALTAIR V2 shutdown complete")
 
 
