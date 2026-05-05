@@ -111,14 +111,6 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Register tasks — scheduler.register() silently skips disabled tasks
     # ------------------------------------------------------------------
-    scheduler.register(
-        VescTask(
-            name="vesc",
-            period_s=config.tasks["vesc"].period_s,
-            datastore=datastore,
-            port_config=config.rw_esc,
-        )
-    )
 
     scheduler.register(
         RWTask(

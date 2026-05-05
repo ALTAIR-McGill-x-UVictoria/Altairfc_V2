@@ -10,10 +10,6 @@ baud = 57600
 enabled = true
 period_s = 0.02   # 50 Hz
 
-[tasks.vesc]
-enabled = false
-period_s = 0.02 # 50 Hz
-
 [tasks.telemetry]
 enabled = true
 period_s = 0.2    # 5 Hz
@@ -24,7 +20,7 @@ period_s = 0.02   # 50 Hz
 
 [tasks.mm_control]
 enabled = true
-period_s = 0.5    # 2 Hz
+period_s = 5.0    # 0.2 Hz
 
 [tasks.photodiode]
 enabled = false
