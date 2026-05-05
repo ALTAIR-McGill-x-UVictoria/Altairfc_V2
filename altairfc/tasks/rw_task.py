@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
- from config.settings import GroundStationConfig, SerialPortConfig
+from config.settings import GroundStationConfig, SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
