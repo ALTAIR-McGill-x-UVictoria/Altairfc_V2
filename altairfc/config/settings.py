@@ -91,8 +91,8 @@ class SystemConfig:
 
     @classmethod
     def from_toml(cls, path: Path) -> "SystemConfig":
-        data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
         rw_esc = SerialPortConfig(**data["rw_esc"])
