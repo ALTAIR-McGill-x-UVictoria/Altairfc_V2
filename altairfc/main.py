@@ -63,7 +63,6 @@ from tasks.command_receiver_task import CommandReceiverTask
 from tasks.flight_stage_task import FlightStageTask
 from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
-from tasks.vesc_task import VescTask
 from tasks.rw_task import RWTask
 from tasks.mm_task import MMTask
 from telemetry.telemetry_task import TelemetryTask
