@@ -73,8 +73,10 @@ class MMTask(BaseTask):
         if data:
             for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
                       'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
-                      'tachometer_abs', 'mc_fault_code'):
-                self.datastore.write(f"mm.{f}", getattr(data, f, None))
+                      'tachometer_abs'):
+                self.datastore.write(f"mm.{f}", getattr(data, f, 0.0))
+            fault = getattr(data, 'mc_fault_code', b'\x00')
+            self.datastore.write("mm.mc_fault_code", fault[0] if isinstance(fault, (bytes, bytearray)) else int(fault))
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
