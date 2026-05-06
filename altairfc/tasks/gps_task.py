@@ -62,7 +62,6 @@ class GpsTask(BaseTask):
         logger.info("GpsTask: driver ready on %s", self._i2c_dev)
         self.io = MCP23017()
         self._timepulse_led = 0
-        self._led_off_at: float = 0.0
         self.io.set_output(self._timepulse_led)
 
         
@@ -100,17 +99,12 @@ class GpsTask(BaseTask):
         self.datastore.write("gps.utc_min",     int(fix.min))
         self.datastore.write("gps.utc_sec",     int(fix.sec))
 
-        if self._led_off_at > 0 and now >= self._led_off_at:
-            self.io.set(self._timepulse_led, LOW)
-            self._led_off_at = 0.0
-
-        if fix.valid and self._led_off_at == 0.0:
+        self.io.set(self._timepulse_led, HIGH if fix.valid else LOW)
+        if fix.valid:
             logger.debug(
                 "GpsTask: fix=3D sv=%d lat=%.6f lon=%.6f alt=%.1fm spd=%.1fm/s",
                 fix.num_sv, fix.lat, fix.lon, fix.alt_msl, fix.speed_ms,
             )
-            self.io.set(self._timepulse_led, HIGH)
-            self._led_off_at = now + 0.1
 
     def teardown(self) -> None:
         self.io.set(self._timepulse_led, LOW)
