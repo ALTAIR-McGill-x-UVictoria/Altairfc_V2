@@ -100,18 +100,21 @@ class GpsTask(BaseTask):
         self.datastore.write("gps.utc_min",     int(fix.min))
         self.datastore.write("gps.utc_sec",     int(fix.sec))
 
-        if fix.valid:
+        if self._led_off_at > 0 and now >= self._led_off_at:
+            self.io.set(self._timepulse_led, LOW)
+            self._led_off_at = 0.0
+
+        if fix.valid and self._led_off_at == 0.0:
             logger.debug(
                 "GpsTask: fix=3D sv=%d lat=%.6f lon=%.6f alt=%.1fm spd=%.1fm/s",
                 fix.num_sv, fix.lat, fix.lon, fix.alt_msl, fix.speed_ms,
             )
             self.io.set(self._timepulse_led, HIGH)
             self._led_off_at = now + 0.1
-        elif self._led_off_at > 0 and now >= self._led_off_at:
-            self.io.set(self._timepulse_led, LOW)
-            self._led_off_at = 0.0
 
     def teardown(self) -> None:
+        self.io.set(self._timepulse_led, LOW)
+        self.io.close()
         if self._driver is not None:
             self._driver.close()
             self._driver = None
