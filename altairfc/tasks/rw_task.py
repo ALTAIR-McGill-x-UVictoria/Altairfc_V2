@@ -45,8 +45,10 @@ class RWTask(BaseTask):
 
         try:
             self.motor = VESCObject(self._vesc_port)
+            self.datastore.write("system.vesc_connected", 1.0)
             logger.info("RWTask: VESC connected on %s", self._vesc_port)
         except Exception as e:
+            self.datastore.write("system.vesc_connected", 0.0)
             logger.error("RWTask: failed to connect VESC on %s: %s", self._vesc_port, e)
             return
 
@@ -101,6 +103,7 @@ class RWTask(BaseTask):
         except Exception as e:
             logger.error("VESC disconnected during data read: %s", e)
             self.motor = None
+            self.datastore.write("system.vesc_connected", 0.0)
             return
         if data:
             for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
