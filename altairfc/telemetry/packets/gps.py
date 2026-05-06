@@ -15,6 +15,8 @@ class LocalGpsPacket:
     Source: GpsTask -> DataStore "gps.*" keys
     """
 
+    TX_RATE_HZ: ClassVar[float] = 1.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "active":      "gps.active",
         "lat":         "gps.lat",
@@ -47,6 +49,8 @@ class MavlinkGpsPacket:
     lat/lon/alt from GPS_RAW_INT, relative_alt from LOCAL_POSITION_NED,
     hdg from GPS_RAW_INT course-over-ground.
     """
+
+    TX_RATE_HZ: ClassVar[float] = 1.0
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "lat":          "mavlink.gps.lat",

@@ -23,6 +23,8 @@ class AttitudePacket:
         "mavlink.attitude.yawspeed"
     """
 
+    TX_RATE_HZ: ClassVar[float] = 4.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "roll":       "mavlink.attitude.roll",
         "pitch":      "mavlink.attitude.pitch",

@@ -45,6 +45,8 @@ class HeartbeatPacket:
         "system.pps_rms_us"
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "time_unix":            "system.time_unix",
         "uptime_s":             "system.uptime_s",

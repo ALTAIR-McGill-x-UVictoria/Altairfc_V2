@@ -37,6 +37,8 @@ class EnvironmentPacket:
         "mavlink.environment.groundspeed"
     """
 
+    TX_RATE_HZ: ClassVar[float] = 1.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "press_abs":   "mavlink.environment.press_abs",
         "press_diff":  "mavlink.environment.press_diff",

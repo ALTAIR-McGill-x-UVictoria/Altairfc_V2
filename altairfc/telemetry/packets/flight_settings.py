@@ -36,6 +36,8 @@ class FlightSettingsPacket:
         settings.mm_max_current
     """
 
+    TX_RATE_HZ: ClassVar[float] = 0.2
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "termination_altitude_m":       "settings.termination_altitude_m",
         "burst_altitude_m":             "settings.burst_altitude_m",

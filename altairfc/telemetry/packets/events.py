@@ -53,6 +53,8 @@ class EventPacket:
         8 — Recovery
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "flight_stage":       "event.flight_stage",
         "arm_state":          "event.arm_state",

@@ -22,6 +22,8 @@ class RWVescPacket:
         rw.mc_fault_code
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "rpm":           "rw.rpm",
         "duty_cycle":    "rw.duty_now",
@@ -54,6 +56,8 @@ class MMVescPacket:
         mm.temp_pcb
         mm.mc_fault_code
     """
+
+    TX_RATE_HZ: ClassVar[float] = 2.0
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "rpm":           "mm.rpm",

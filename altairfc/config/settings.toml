@@ -12,7 +12,7 @@ period_s = 0.02   # 50 Hz
 
 [tasks.telemetry]
 enabled = true
-period_s = 0.2    # 5 Hz — one packet per cycle, ~2.6 s full rotation across ~13 packet types
+period_s = 0.05    # 20 Hz tick — each packet type has its own TX_RATE_HZ set in its class
 
 [tasks.rw_control]
 enabled = true
