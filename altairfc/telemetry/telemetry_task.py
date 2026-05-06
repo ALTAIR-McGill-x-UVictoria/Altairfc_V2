@@ -65,11 +65,10 @@ class TelemetryTask(BaseTask):
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
-        # Rebuild packet list only when the registry changes (e.g. on first call)
-        all_packets = packet_registry.all_packets()
-        if len(all_packets) != len(self._packet_list):
+        # Build packet list once on first call
+        if not self._packet_list:
             self._packet_list = [
-                (pid, cls) for pid, cls in all_packets.items()
+                (pid, cls) for pid, cls in packet_registry.all_packets().items()
                 if getattr(cls, "DATASTORE_KEYS", {})
             ]
             self._packet_index = 0
