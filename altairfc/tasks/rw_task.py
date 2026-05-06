@@ -37,6 +37,7 @@ class RWTask(BaseTask):
         self._pointing_enabled = pointing_enabled
         self._activate_altitude_m = motor_control.activate_altitude_m if motor_control else 0.0
         self._run_duration_s      = motor_control.run_duration_min * 60.0 if motor_control else float("inf")
+        self._activate_time       = float("inf")
         self.controller = Controller(controller_config, period_s)
         
 
