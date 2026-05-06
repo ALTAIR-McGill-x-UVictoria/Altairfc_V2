@@ -128,16 +128,24 @@ class MavlinkTask(BaseTask):
     def execute(self) -> None:
         if self._master is None:
             return
-        # Block up to one period waiting for a message — yields the GIL while waiting.
-        # Drain any additional queued messages immediately after.
-        msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=True, timeout=self.period_s)
-        if msg is not None:
-            self._handle_message(msg)
-            while True:
-                msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=False)
-                if msg is None:
-                    break
+        try:
+            msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=True, timeout=self.period_s)
+            if msg is not None:
                 self._handle_message(msg)
+                while True:
+                    msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=False)
+                    if msg is None:
+                        break
+                    self._handle_message(msg)
+        except Exception as e:
+            logger.warning("MavlinkTask: serial error — reconnecting (%s)", e)
+            self.datastore.write("system.pixhawk_connected", 0.0)
+            try:
+                self._master.close()
+            except Exception:
+                pass
+            self._master = None
+            self.setup()
 
     @staticmethod
     def _f(value: float, fallback: float = 0.0) -> float:
