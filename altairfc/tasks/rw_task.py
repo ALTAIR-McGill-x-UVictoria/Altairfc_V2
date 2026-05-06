@@ -38,6 +38,17 @@ class RWTask(BaseTask):
         
 
     def setup(self) -> None:
+        from tasks.flight_stage_task import STAGE_LAUNCH
+        logger.info("RWTask: waiting for LAUNCH command before starting")
+        while not self._stop_event.is_set():
+            stage = int(self.datastore.read("event.flight_stage", default=0))
+            if stage >= STAGE_LAUNCH:
+                break
+            self._stop_event.wait(timeout=0.5)
+
+        if self._stop_event.is_set():
+            return
+
         self.motor = None
         self._servo = ServoPointer()
         self._servo.connect()
