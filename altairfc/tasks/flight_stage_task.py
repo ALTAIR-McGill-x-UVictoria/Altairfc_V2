@@ -372,18 +372,18 @@ class FlightStageTask(BaseTask):
         failures: list[str] = []
 
         # MAVLink: attitude data must be arriving
-        _, mavlink_ts = self.datastore.read_with_timestamp("mavlink.attitude.yaw")
-        if mavlink_ts is None or (now - mavlink_ts) > _MAVLINK_STALENESS_S:
+        mavlink_entry = self.datastore.read_with_timestamp("mavlink.attitude.yaw")
+        if mavlink_entry is None or (now - mavlink_entry[1]) > _MAVLINK_STALENESS_S:
             failures.append("mavlink_stale")
 
         # RW VESC: rpm key must exist and be fresh
-        _, rw_ts = self.datastore.read_with_timestamp("rw.rpm")
-        if rw_ts is None or (now - rw_ts) > _VESC_RPM_TIMEOUT_S:
+        rw_entry = self.datastore.read_with_timestamp("rw.rpm")
+        if rw_entry is None or (now - rw_entry[1]) > _VESC_RPM_TIMEOUT_S:
             failures.append("rw_vesc_missing")
 
         # MM VESC: rpm key must exist and be fresh
-        _, mm_ts = self.datastore.read_with_timestamp("mm.rpm")
-        if mm_ts is None or (now - mm_ts) > _VESC_RPM_TIMEOUT_S:
+        mm_entry = self.datastore.read_with_timestamp("mm.rpm")
+        if mm_entry is None or (now - mm_entry[1]) > _VESC_RPM_TIMEOUT_S:
             failures.append("mm_vesc_missing")
 
         # GPS: module must be responding
