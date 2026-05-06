@@ -109,6 +109,8 @@ class RWTask(BaseTask):
         self._servo.disconnect()
 
     def _store(self):
+        if self.motor is None:
+            return
         try:
             data = self.motor.get_data(timeout=0.3)
         except Exception as e:
