@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import numpy as np
-from config.settings import SerialPortConfig, ControllerConfig
+from config.settings import ControllerConfig, MotorControlConfig, SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
@@ -22,9 +22,12 @@ class MMTask(BaseTask):
         datastore: DataStore,
         vesc_port: SerialPortConfig,
         controller_config: ControllerConfig,
+        motor_control: MotorControlConfig | None = None,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
+        self._activate_altitude_m = motor_control.activate_altitude_m if motor_control else 0.0
+        self._run_duration_s      = motor_control.run_duration_min * 60.0 if motor_control else float("inf")
         self.controller = Controller(controller_config, period_s)
         
 
@@ -39,18 +42,20 @@ class MMTask(BaseTask):
             return
 
         # Poll telemetry during preflight so mm.* keys are available for preflight checks
-        logger.info("MMTask: polling VESC telemetry, waiting for LAUNCH command")
+        logger.info("MMTask: polling VESC telemetry, waiting for LAUNCH and altitude >= %.0f m", self._activate_altitude_m)
         while not self._stop_event.is_set():
             self._store()
             stage = int(self.datastore.read("event.flight_stage", default=0))
-            if stage >= STAGE_LAUNCH:
+            alt   = float(self.datastore.read("gps.alt_msl", default=0.0))
+            if stage >= STAGE_LAUNCH and alt >= self._activate_altitude_m:
                 break
             self._stop_event.wait(timeout=0.5)
 
         if self._stop_event.is_set():
             return
 
-        logger.info("MMTask: LAUNCH received — braking payload")
+        self._activate_time = time.monotonic()
+        logger.info("MMTask: LAUNCH + altitude reached — braking payload")
         while not self._stop_event.is_set():
             yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
             motor_rpm = float(self.datastore.read("rw.rpm", default=0.0))
@@ -61,6 +66,11 @@ class MMTask(BaseTask):
 
     def execute(self) -> None:
         if self.motor is None:
+            return
+        if time.monotonic() - self._activate_time > self._run_duration_s:
+            logger.info("MMTask: run duration elapsed — stopping motor")
+            self.motor.set_current(0)
+            self._stop_event.set()
             return
         self._store()
         self.controller.Kp        = float(self.datastore.read("settings.mm_kp",          default=self.controller.Kp))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from config.settings import GroundStationConfig, SerialPortConfig
+from config.settings import GroundStationConfig, MotorControlConfig, SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
@@ -25,6 +25,7 @@ class RWTask(BaseTask):
         controller_config: list,
         ground_station: GroundStationConfig,
         pointing_enabled: bool = True,
+        motor_control: MotorControlConfig | None = None,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
@@ -34,6 +35,8 @@ class RWTask(BaseTask):
             ground_station.altitude,
         ]
         self._pointing_enabled = pointing_enabled
+        self._activate_altitude_m = motor_control.activate_altitude_m if motor_control else 0.0
+        self._run_duration_s      = motor_control.run_duration_min * 60.0 if motor_control else float("inf")
         self.controller = Controller(controller_config, period_s)
         
 
@@ -53,18 +56,20 @@ class RWTask(BaseTask):
             return
 
         # Poll telemetry during preflight so rw.* keys are available for preflight checks
-        logger.info("RWTask: polling VESC telemetry, waiting for LAUNCH command")
+        logger.info("RWTask: polling VESC telemetry, waiting for LAUNCH and altitude >= %.0f m", self._activate_altitude_m)
         while not self._stop_event.is_set():
             self._store()
             stage = int(self.datastore.read("event.flight_stage", default=0))
-            if stage >= STAGE_LAUNCH:
+            alt   = float(self.datastore.read("gps.alt_msl", default=0.0))
+            if stage >= STAGE_LAUNCH and alt >= self._activate_altitude_m:
                 break
             self._stop_event.wait(timeout=0.5)
 
         if self._stop_event.is_set():
             return
 
-        logger.info("RWTask: LAUNCH received — spinning up reaction wheel")
+        self._activate_time = time.monotonic()
+        logger.info("RWTask: LAUNCH + altitude reached — spinning up reaction wheel")
         self._hold(self.motor.set_rpm, 1700, duration=5.0)
         while not self._stop_event.is_set():
             logger.info("RWTask: stabilizing payload")
@@ -76,6 +81,12 @@ class RWTask(BaseTask):
             time.sleep(0.05)
 
     def execute(self) -> None:
+        if time.monotonic() - self._activate_time > self._run_duration_s:
+            logger.info("RWTask: run duration elapsed — stopping motor")
+            self.motor.set_rpm(0)
+            self._stop_event.set()
+            return
+
         quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
 

@@ -128,6 +128,7 @@ def main() -> None:
             controller_config=config.controller["reaction_wheel"],
             ground_station=config.ground_station,
             pointing_enabled=config.pointing.enabled,
+            motor_control=config.motor_control,
         )
     )
     
@@ -156,6 +157,7 @@ def main() -> None:
             datastore=datastore,
             vesc_port=config.mm_esc,
             controller_config=config.controller["momentum_management"],
+            motor_control=config.motor_control,
         )
     )
 

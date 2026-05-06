@@ -67,6 +67,12 @@ class FlightStageConfig:
 
 
 @dataclass
+class MotorControlConfig:
+    activate_altitude_m: float = 18000.0
+    run_duration_min:    float = 120.0
+
+
+@dataclass
 class PointingConfig:
     enabled: bool = True
 
@@ -87,6 +93,7 @@ class SystemConfig:
     controller: dict[str, ControllerConfig]
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
+    motor_control: MotorControlConfig = field(default_factory=MotorControlConfig)
     pointing: PointingConfig = field(default_factory=PointingConfig)
     ground_station: GroundStationConfig = field(
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
@@ -136,6 +143,12 @@ class SystemConfig:
         )
 
 
+        mc_raw = data.get("motor_control", {})
+        motor_control = MotorControlConfig(
+            activate_altitude_m=mc_raw.get("activate_altitude_m", 18000.0),
+            run_duration_min=mc_raw.get("run_duration_min", 120.0),
+        )
+
         pointing_raw = data.get("pointing", {})
         pointing = PointingConfig(enabled=pointing_raw.get("enabled", True))
 
@@ -155,6 +168,7 @@ class SystemConfig:
             controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,
+            motor_control=motor_control,
             pointing=pointing,
             ground_station=ground_station,
             log_level=system.get("log_level", "INFO"),
