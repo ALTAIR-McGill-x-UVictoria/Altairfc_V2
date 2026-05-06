@@ -261,6 +261,7 @@ class FlightStageTask(BaseTask):
                     self._arm_cmd_pending = False
                     self._write_flag("arm_checks_ok", 1)
                     self._write_flag("arm_state", 1)
+                    self._alt_history.clear()
                     logger.info("FlightStageTask: arm checks passed — advancing to STAGE_ARMED")
                     return STAGE_ARMED
                 else:
