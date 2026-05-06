@@ -83,7 +83,12 @@ class RWTask(BaseTask):
         self._servo.disconnect()
 
     def _store(self):
-        data = self.motor.get_data(timeout=0.3)
+        try:
+            data = self.motor.get_data(timeout=0.3)
+        except Exception as e:
+            logger.error("VESC disconnected during data read: %s", e)
+            self.motor = None
+            return
         if data:
             # Write all GetValues fields into the datastore under the 'rw.' namespace
             fields = [
