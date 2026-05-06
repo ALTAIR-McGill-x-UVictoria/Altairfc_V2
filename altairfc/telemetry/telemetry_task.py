@@ -43,39 +43,54 @@ class TelemetryTask(BaseTask):
 
     def setup(self) -> None:
         self.transport.open()
+        self._packet_list: list[tuple[int, type]] = []
+        self._packet_index: int = 0
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
-        for key, value in collect_system_stats(
-            tasks_running=len(packet_registry.all_packets())
-        ).items():
-            self.datastore.write(key, value)
+        # Rebuild packet list only when the registry changes (e.g. on first call)
+        all_packets = packet_registry.all_packets()
+        if len(all_packets) != len(self._packet_list):
+            self._packet_list = [
+                (pid, cls) for pid, cls in all_packets.items()
+                if getattr(cls, "DATASTORE_KEYS", {})
+            ]
+            self._packet_index = 0
 
-        for packet_id, pkt_class in packet_registry.all_packets().items():
-            keys_map: dict[str, str] = getattr(pkt_class, "DATASTORE_KEYS", {})
-            if not keys_map:
-                continue
+        if not self._packet_list:
+            return
 
-            field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
-            kwargs: dict[str, object] = {}
-            for field_name, ds_key in keys_map.items():
-                raw = self.datastore.read(ds_key, default=0)
-                kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
+        # Refresh system stats once per full rotation
+        if self._packet_index == 0:
+            for key, value in collect_system_stats(
+                tasks_running=len(self._packet_list)
+            ).items():
+                self.datastore.write(key, value)
 
-            try:
-                packet = pkt_class(**kwargs)
-            except TypeError:
-                logger.warning("TelemetryTask: failed to instantiate %s", pkt_class.__name__)
-                continue
+        # Send one packet this cycle
+        packet_id, pkt_class = self._packet_list[self._packet_index]
+        self._packet_index = (self._packet_index + 1) % len(self._packet_list)
 
-            seq = self._seq_counters.get(packet_id, 0)
-            self._seq_counters[packet_id] = (seq + 1) & 0xFF
+        field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
+        kwargs: dict[str, object] = {}
+        for field_name, ds_key in pkt_class.DATASTORE_KEYS.items():
+            raw = self.datastore.read(ds_key, default=0)
+            kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
 
-            try:
-                frame = self._serializer.pack(packet, seq=seq)
-                self.transport.send(frame)
-            except Exception:
-                logger.exception("TelemetryTask: error packing/sending %s", pkt_class.__name__)
+        try:
+            packet = pkt_class(**kwargs)
+        except TypeError:
+            logger.warning("TelemetryTask: failed to instantiate %s", pkt_class.__name__)
+            return
+
+        seq = self._seq_counters.get(packet_id, 0)
+        self._seq_counters[packet_id] = (seq + 1) & 0xFF
+
+        try:
+            frame = self._serializer.pack(packet, seq=seq)
+            self.transport.send(frame)
+        except Exception:
+            logger.exception("TelemetryTask: error packing/sending %s", pkt_class.__name__)
 
     def teardown(self) -> None:
         self.transport.close()
