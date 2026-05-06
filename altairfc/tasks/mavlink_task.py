@@ -38,6 +38,7 @@ class MavlinkTask(BaseTask):
         mavlink.gps.alt              (float, m)     — MSL altitude
         mavlink.gps.relative_alt     (float, m)     — above home, from LOCAL_POSITION_NED (-z)
         mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360, from GPS_RAW_INT
+        mavlink.gps.num_sv           (int)          — satellites visible, from GPS_RAW_INT
         mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
         mavlink.environment.press_diff   (float, hPa)
         mavlink.environment.temperature  (float, °C)   — centidegrees converted
@@ -163,6 +164,7 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.gps.lon", f(msg.lon / 1e7))
             self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3))
             self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2))
+            self.datastore.write("mavlink.gps.num_sv", int(msg.satellites_visible))
 
         elif msg_type == "LOCAL_POSITION_NED":
             # NED frame: z is positive downward, so relative_alt = -z

@@ -54,6 +54,7 @@ class MavlinkGpsPacket:
         "alt":          "mavlink.gps.alt",
         "relative_alt": "mavlink.gps.relative_alt",
         "hdg":          "mavlink.gps.hdg",
+        "num_sv":       "mavlink.gps.num_sv",
     }
 
     lat:          float = field(default=0.0, metadata=FieldMeta("f", "Latitude",     "deg").as_metadata())
@@ -61,3 +62,4 @@ class MavlinkGpsPacket:
     alt:          float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL", "m").as_metadata())
     relative_alt: float = field(default=0.0, metadata=FieldMeta("f", "Altitude AGL", "m").as_metadata())
     hdg:          float = field(default=0.0, metadata=FieldMeta("f", "Heading",      "deg").as_metadata())
+    num_sv:       int   = field(default=0,   metadata=FieldMeta("B", "Satellites",   "").as_metadata())
