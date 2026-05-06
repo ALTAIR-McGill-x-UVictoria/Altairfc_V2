@@ -160,28 +160,30 @@ def main() -> None:
     )
 
 
-    telemetry_transport = SerialTransport(
-        port=config.telemetry.port,
-        baud=config.telemetry.baud,
-    )
-    scheduler.register(
-        TelemetryTask(
-            name="telemetry",
-            period_s=config.tasks["telemetry"].period_s,
-            datastore=datastore,
-            transport=telemetry_transport,
+    if config.telemetry is not None:
+        telemetry_transport = SerialTransport(
+            port=config.telemetry.port,
+            baud=config.telemetry.baud,
         )
-    )
-
-    scheduler.register(
-        CommandReceiverTask(
-            name="command_receiver",
-            period_s=config.tasks["command_receiver"].period_s,
-            datastore=datastore,
-            transport=telemetry_transport,
-            buzzer=buzzer,
+        scheduler.register(
+            TelemetryTask(
+                name="telemetry",
+                period_s=config.tasks["telemetry"].period_s,
+                datastore=datastore,
+                transport=telemetry_transport,
+            )
         )
-    )
+        scheduler.register(
+            CommandReceiverTask(
+                name="command_receiver",
+                period_s=config.tasks["command_receiver"].period_s,
+                datastore=datastore,
+                transport=telemetry_transport,
+                buzzer=buzzer,
+            )
+        )
+    else:
+        logger.info("Telemetry radio not configured — TelemetryTask and CommandReceiverTask skipped")
 
     scheduler.register(
         FlightStageTask(

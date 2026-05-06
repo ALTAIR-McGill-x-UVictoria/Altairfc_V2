@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,20 +8,25 @@ from typing import Any
 
 from drivers.port_detect import find_lr900p_port
 
+logger = logging.getLogger(__name__)
 
-def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig":
+
+def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig | None":
     """
     Build a SerialPortConfig, resolving port="auto" by scanning for a CP210x device.
-    Raises RuntimeError if auto-detect is requested but no device is found.
+    Returns None when port="none" or when auto-detect finds no device (logs a warning).
     """
     port = cfg.get("port", "")
+    if port.lower() == "none":
+        return None
     if port.lower() == "auto":
         detected = find_lr900p_port()
         if detected is None:
-            raise RuntimeError(
-                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected. "
-                "Check the USB connection or set the port explicitly in config/settings.toml."
+            logger.warning(
+                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected — "
+                "telemetry radio disabled. Set port explicitly in config/settings.toml to suppress this."
             )
+            return None
         port = detected
     return SerialPortConfig(port=port, baud=cfg["baud"])
 
@@ -75,7 +81,7 @@ class GroundStationConfig:
 @dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
-    telemetry: SerialPortConfig
+    telemetry: SerialPortConfig | None
     rw_esc: SerialPortConfig
     mm_esc: SerialPortConfig
     controller: dict[str, ControllerConfig]
