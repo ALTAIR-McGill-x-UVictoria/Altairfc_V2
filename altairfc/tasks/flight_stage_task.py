@@ -72,10 +72,8 @@ _MAVLINK_STALENESS_S  = 3.0   # mavlink data must have arrived within this many 
 _VESC_RPM_TIMEOUT_S   = 5.0   # VESC data must have arrived within this many seconds
 
 # Arm checks
-_SPINUP_RPM           = 500   # minimum RPM both motors must reach during test spin
-_SPINUP_DURATION_S    = 5.0   # how long to wait for spin-up response
-_GPS_MIN_SV           = 4     # minimum satellites for a valid fix
-_NEUTRAL_YAW_RATE     = 0.15  # rad/s — max yaw rate to consider orientation stable
+_GPS_MIN_SV       = 4     # minimum satellites for a valid fix
+_NEUTRAL_YAW_RATE = 0.15  # rad/s — max yaw rate to consider orientation stable
 
 # Altitude tolerance for "stationary" check (m)
 _STATIONARY_BAND_M = 2.0
@@ -158,9 +156,7 @@ class FlightStageTask(BaseTask):
             "data_logging_active": 0,
         }
 
-        # Arm check state
-        self._arm_cmd_pending:  bool  = False
-        self._arm_check_start:  float = 0.0
+        self._arm_cmd_pending: bool = False
 
     # ------------------------------------------------------------------
     # BaseTask lifecycle
@@ -184,7 +180,6 @@ class FlightStageTask(BaseTask):
             if self._stage == STAGE_PREFLIGHT and self._flags["preflight_ok"]:
                 logger.info("FlightStageTask: ARM command received — starting arm checks")
                 self._arm_cmd_pending = True
-                self._arm_check_start = now
             else:
                 logger.warning(
                     "FlightStageTask: ARM command rejected (stage=%d preflight_ok=%d)",
@@ -268,10 +263,8 @@ class FlightStageTask(BaseTask):
                     self._write_flag("arm_state", 1)
                     logger.info("FlightStageTask: arm checks passed — advancing to STAGE_ARMED")
                     return STAGE_ARMED
-                elif now - self._arm_check_start > _SPINUP_DURATION_S + 2.0:
-                    # Timed out — report failures and cancel
-                    self._arm_cmd_pending = False
-                    logger.warning("FlightStageTask: arm checks FAILED: %s", ", ".join(arm_failures))
+                else:
+                    logger.debug("FlightStageTask: arm checks pending: %s", ", ".join(arm_failures))
 
         elif stage == STAGE_ARMED:
             self._write_flag("arm_state", 1)
@@ -400,14 +393,13 @@ class FlightStageTask(BaseTask):
         """
         Run arm checks after ARM command received.
         Returns (all_ok, list_of_failures).
-        Waits _SPINUP_DURATION_S for motors to respond before evaluating RPM.
+        All checks are non-blocking — evaluated on each execute() cycle.
         """
         failures: list[str] = []
-        elapsed = now - self._arm_check_start
 
         # GPS fix quality
-        gps_valid  = int(self.datastore.read("gps.valid",   default=0))
-        gps_num_sv = int(self.datastore.read("gps.num_sv",  default=0))
+        gps_valid  = int(self.datastore.read("gps.valid",  default=0))
+        gps_num_sv = int(self.datastore.read("gps.num_sv", default=0))
         if not gps_valid or gps_num_sv < _GPS_MIN_SV:
             failures.append(f"gps_no_fix(sv={gps_num_sv})")
 
@@ -416,20 +408,16 @@ class FlightStageTask(BaseTask):
         if yaw_rate > _NEUTRAL_YAW_RATE:
             failures.append(f"yaw_rate_high({yaw_rate:.2f}rad/s)")
 
-        # Motor spin-up — only evaluate after spin-up window
-        if elapsed >= _SPINUP_DURATION_S:
-            rw_rpm = abs(float(self.datastore.read("rw.rpm", default=0.0)))
-            mm_rpm = abs(float(self.datastore.read("mm.rpm", default=0.0)))
-            if rw_rpm < _SPINUP_RPM:
-                failures.append(f"rw_no_spin(rpm={rw_rpm:.0f})")
-            if mm_rpm < _SPINUP_RPM:
-                failures.append(f"mm_no_spin(rpm={mm_rpm:.0f})")
+        # VESC telemetry freshness (confirms both ESCs are alive and reporting)
+        rw_entry = self.datastore.read_with_timestamp("rw.rpm")
+        if rw_entry is None or (now - rw_entry[1]) > _VESC_RPM_TIMEOUT_S:
+            failures.append("rw_vesc_not_reporting")
 
-            return len(failures) == 0, failures
+        mm_entry = self.datastore.read_with_timestamp("mm.rpm")
+        if mm_entry is None or (now - mm_entry[1]) > _VESC_RPM_TIMEOUT_S:
+            failures.append("mm_vesc_not_reporting")
 
-        # Still within spin-up window — only report non-motor failures
-        non_motor = [f for f in failures if "spin" not in f]
-        return False, non_motor  # not ready yet
+        return len(failures) == 0, failures
 
     def _detect_launch(self, now: float, baro_alt: float) -> bool:
         """True if altitude gained ≥ _LAUNCH_GAIN_M over the last _LAUNCH_WINDOW_S seconds."""
