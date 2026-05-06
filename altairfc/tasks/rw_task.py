@@ -90,19 +90,10 @@ class RWTask(BaseTask):
             self.motor = None
             return
         if data:
-            # Write all GetValues fields into the datastore under the 'rw.' namespace
-            fields = [
-                'can_id', 'temp_fet', 'temp_motor', 'avg_motor_current', 'avg_input_current', 'avg_id',
-                'avg_iq', 'duty_cycle_now', 'rpm', 'v_in', 'amp_hours', 'amp_hours_charged',
-                'watt_hours', 'watt_hours_charged','tachometer', 'tachometer_abs', 'mc_fault_code',
-                'pid_pos_now', 'app_controller_id', 'time_ms',
-            ]
-            for f in fields:
-                try:
-                    val = getattr(data, f, None)
-                except Exception:
-                    val = None
-                self.datastore.write(f"rw.{f}", val)
+            for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
+                      'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
+                      'tachometer_abs', 'mc_fault_code'):
+                self.datastore.write(f"rw.{f}", getattr(data, f, None))
 
     def _read(self):
         quat = [

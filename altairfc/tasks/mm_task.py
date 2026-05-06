@@ -49,6 +49,7 @@ class MMTask(BaseTask):
     def execute(self) -> None:
         if self.motor is None:
             return
+        self._store()
         self.controller.Kp        = float(self.datastore.read("settings.mm_kp",          default=self.controller.Kp))
         self.controller.Kd        = float(self.datastore.read("settings.mm_kd",          default=self.controller.Kd))
         self.controller.max_value = float(self.datastore.read("settings.mm_max_current", default=self.controller.max_value))
@@ -61,6 +62,19 @@ class MMTask(BaseTask):
     def teardown(self) -> None:
         if self.motor is not None:
             self.motor.set_current(0)
+
+    def _store(self) -> None:
+        try:
+            data = self.motor.get_data(timeout=0.3)
+        except Exception as e:
+            logger.error("MM VESC disconnected during data read: %s", e)
+            self.motor = None
+            return
+        if data:
+            for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
+                      'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
+                      'tachometer_abs', 'mc_fault_code'):
+                self.datastore.write(f"mm.{f}", getattr(data, f, None))
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
