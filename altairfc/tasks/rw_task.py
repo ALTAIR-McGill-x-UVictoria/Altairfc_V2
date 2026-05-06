@@ -39,8 +39,21 @@ class RWTask(BaseTask):
 
     def setup(self) -> None:
         from tasks.flight_stage_task import STAGE_LAUNCH
-        logger.info("RWTask: waiting for LAUNCH command before starting")
+        self.motor = None
+        self._servo = ServoPointer()
+        self._servo.connect()
+
+        try:
+            self.motor = VESCObject(self._vesc_port)
+            logger.info("RWTask: VESC connected on %s", self._vesc_port)
+        except Exception as e:
+            logger.error("RWTask: failed to connect VESC on %s: %s", self._vesc_port, e)
+            return
+
+        # Poll telemetry during preflight so rw.* keys are available for preflight checks
+        logger.info("RWTask: polling VESC telemetry, waiting for LAUNCH command")
         while not self._stop_event.is_set():
+            self._store()
             stage = int(self.datastore.read("event.flight_stage", default=0))
             if stage >= STAGE_LAUNCH:
                 break
@@ -49,21 +62,10 @@ class RWTask(BaseTask):
         if self._stop_event.is_set():
             return
 
-        self.motor = None
-        self._servo = ServoPointer()
-        self._servo.connect()
-
-        try:
-            self.motor = VESCObject(self._vesc_port)
-            logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
-        except Exception as e:
-            logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
-            return
-
-        logger.info("Bringing reaction wheel up to speed")
+        logger.info("RWTask: LAUNCH received — spinning up reaction wheel")
         self._hold(self.motor.set_rpm, 1700, duration=5.0)
         while not self._stop_event.is_set():
-            logger.info("Stabilizing Payload")
+            logger.info("RWTask: stabilizing payload")
             self._store()
             self.motor.set_rpm(1700)
             yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
