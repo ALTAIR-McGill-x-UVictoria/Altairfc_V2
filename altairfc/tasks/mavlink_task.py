@@ -128,13 +128,16 @@ class MavlinkTask(BaseTask):
     def execute(self) -> None:
         if self._master is None:
             return
-        # Drain all queued messages each cycle so slow message types
-        # (e.g. GLOBAL_POSITION_INT at 5 Hz) are not starved by faster ones.
-        while True:
-            msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=False)
-            if msg is None:
-                break
+        # Block up to one period waiting for a message — yields the GIL while waiting.
+        # Drain any additional queued messages immediately after.
+        msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=True, timeout=self.period_s)
+        if msg is not None:
             self._handle_message(msg)
+            while True:
+                msg = self._master.recv_match(type=list(_SUBSCRIBED_TYPES), blocking=False)
+                if msg is None:
+                    break
+                self._handle_message(msg)
 
     @staticmethod
     def _f(value: float, fallback: float = 0.0) -> float:
