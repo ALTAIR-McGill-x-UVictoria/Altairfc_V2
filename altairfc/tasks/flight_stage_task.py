@@ -67,6 +67,16 @@ STAGE_DESCENT      = 6
 STAGE_LANDING      = 7
 STAGE_RECOVERY     = 8
 
+# Preflight: thresholds for "connected" checks
+_MAVLINK_STALENESS_S  = 3.0   # mavlink data must have arrived within this many seconds
+_VESC_RPM_TIMEOUT_S   = 5.0   # VESC data must have arrived within this many seconds
+
+# Arm checks
+_SPINUP_RPM           = 500   # minimum RPM both motors must reach during test spin
+_SPINUP_DURATION_S    = 5.0   # how long to wait for spin-up response
+_GPS_MIN_SV           = 4     # minimum satellites for a valid fix
+_NEUTRAL_YAW_RATE     = 0.15  # rad/s — max yaw rate to consider orientation stable
+
 # Altitude tolerance for "stationary" check (m)
 _STATIONARY_BAND_M = 2.0
 
@@ -135,6 +145,8 @@ class FlightStageTask(BaseTask):
         self._flags: dict[str, int] = {
             "flight_stage":       0,
             "arm_state":          0,
+            "preflight_ok":       0,
+            "arm_checks_ok":      0,
             "launch_detected":    0,
             "ascent_active":      0,
             "termination_fired":  0,
@@ -146,6 +158,10 @@ class FlightStageTask(BaseTask):
             "data_logging_active": 0,
         }
 
+        # Arm check state
+        self._arm_cmd_pending:  bool  = False
+        self._arm_check_start:  float = 0.0
+
     # ------------------------------------------------------------------
     # BaseTask lifecycle
     # ------------------------------------------------------------------
@@ -154,7 +170,6 @@ class FlightStageTask(BaseTask):
         logger.info("FlightStageTask: initializing — writing all event.* keys to 0")
         for key, val in self._flags.items():
             self.datastore.write(f"event.{key}", val)
-        # Write data_logging_active = 1 immediately (logging starts with the Pi)
         self._write_flag("data_logging_active", 1)
 
     def execute(self) -> None:
@@ -163,25 +178,35 @@ class FlightStageTask(BaseTask):
         baro_alt: float = self.datastore.read("mavlink.environment.baro_alt", default=0.0)
         climb:    float = self.datastore.read("mavlink.environment.climb",    default=0.0)
 
-        # Poll GS ARM command (one-shot latch: read, apply, clear)
+        # Poll GS ARM command — only accepted in PREFLIGHT once preflight_ok
         if float(self.datastore.read("command.arm", default=0.0)) >= 1.0:
             self.datastore.write("command.arm", 0.0)
-            self.datastore.write("event.arm_state", 1)
-            logger.info("FlightStageTask: ARM command received from GS")
+            if self._stage == STAGE_PREFLIGHT and self._flags["preflight_ok"]:
+                logger.info("FlightStageTask: ARM command received — starting arm checks")
+                self._arm_cmd_pending = True
+                self._arm_check_start = now
+            else:
+                logger.warning(
+                    "FlightStageTask: ARM command rejected (stage=%d preflight_ok=%d)",
+                    self._stage, self._flags["preflight_ok"],
+                )
 
-        # Poll GS LAUNCH_OK command — only valid in ARMED stage
+        # Poll GS LAUNCH_OK command — only valid in ARMED stage once arm_checks_ok
         if float(self.datastore.read("command.launch_ok", default=0.0)) >= 1.0:
             self.datastore.write("command.launch_ok", 0.0)
-            if self._stage == STAGE_ARMED:
+            if self._stage == STAGE_ARMED and self._flags["arm_checks_ok"]:
                 self._write_flag("launch_detected", 1)
                 self._stage = STAGE_LAUNCH
-                logger.info("FlightStageTask: LAUNCH_OK command received from GS — advancing to STAGE_LAUNCH")
+                logger.info("FlightStageTask: LAUNCH_OK received — advancing to STAGE_LAUNCH")
+            else:
+                logger.warning(
+                    "FlightStageTask: LAUNCH_OK rejected (stage=%d arm_checks_ok=%d)",
+                    self._stage, self._flags["arm_checks_ok"],
+                )
 
-        # Arm state: poll physical switch (stub returns False until GPIO is configured)
-        hw_armed = _hw_read_arm_switch()
-        if hw_armed:
-            self.datastore.write("event.arm_state", 1)
-        arm_state: int = int(self.datastore.read("event.arm_state", default=0))
+        # Physical arm switch (stub — returns False until GPIO is configured)
+        if _hw_read_arm_switch():
+            self._write_flag("arm_state", 1)
 
         # Read current settings from DataStore (updated live by UpdateSettingCommand).
         # Fall back to the config object loaded at startup if a key is missing.
@@ -208,7 +233,7 @@ class FlightStageTask(BaseTask):
             self._measured_apogee = baro_alt
 
         # Run state transitions
-        new_stage = self._transition(now, baro_alt, climb, arm_state, cfg)
+        new_stage = self._transition(now, baro_alt, climb, cfg)
         if new_stage != self._stage:
             logger.info("FlightStageTask: stage %d → %d", self._stage, new_stage)
             self._stage = new_stage
@@ -227,19 +252,29 @@ class FlightStageTask(BaseTask):
         now: float,
         baro_alt: float,
         climb: float,
-        arm_state: int,
         cfg: FlightStageConfig,
     ) -> int:
         stage = self._stage
 
         if stage == STAGE_PREFLIGHT:
-            # Mirror arm_state from DataStore (set by external command interface)
-            self._write_flag("arm_state", arm_state)
-            if arm_state:
-                return STAGE_ARMED
+            preflight_ok = self._check_preflight(now)
+            self._write_flag("preflight_ok", 1 if preflight_ok else 0)
+
+            if self._arm_cmd_pending:
+                arm_ok, arm_failures = self._check_arm(now)
+                if arm_ok:
+                    self._arm_cmd_pending = False
+                    self._write_flag("arm_checks_ok", 1)
+                    self._write_flag("arm_state", 1)
+                    logger.info("FlightStageTask: arm checks passed — advancing to STAGE_ARMED")
+                    return STAGE_ARMED
+                elif now - self._arm_check_start > _SPINUP_DURATION_S + 2.0:
+                    # Timed out — report failures and cancel
+                    self._arm_cmd_pending = False
+                    logger.warning("FlightStageTask: arm checks FAILED: %s", ", ".join(arm_failures))
 
         elif stage == STAGE_ARMED:
-            self._write_flag("arm_state", arm_state)
+            self._write_flag("arm_state", 1)
             if self._detect_launch(now, baro_alt):
                 self._write_flag("launch_detected", 1)
                 return STAGE_LAUNCH
@@ -328,6 +363,73 @@ class FlightStageTask(BaseTask):
     # ------------------------------------------------------------------
     # Detection helpers
     # ------------------------------------------------------------------
+
+    def _check_preflight(self, now: float) -> bool:
+        """
+        Verify all hardware is connected and reporting fresh data.
+        Returns True only when every check passes.
+        """
+        failures: list[str] = []
+
+        # MAVLink: attitude data must be arriving
+        _, mavlink_ts = self.datastore.read_with_timestamp("mavlink.attitude.yaw")
+        if mavlink_ts is None or (now - mavlink_ts) > _MAVLINK_STALENESS_S:
+            failures.append("mavlink_stale")
+
+        # RW VESC: rpm key must exist and be fresh
+        _, rw_ts = self.datastore.read_with_timestamp("rw.rpm")
+        if rw_ts is None or (now - rw_ts) > _VESC_RPM_TIMEOUT_S:
+            failures.append("rw_vesc_missing")
+
+        # MM VESC: rpm key must exist and be fresh
+        _, mm_ts = self.datastore.read_with_timestamp("mm.rpm")
+        if mm_ts is None or (now - mm_ts) > _VESC_RPM_TIMEOUT_S:
+            failures.append("mm_vesc_missing")
+
+        # GPS: module must be responding
+        gps_active = int(self.datastore.read("gps.active", default=0))
+        if not gps_active:
+            failures.append("gps_not_active")
+
+        if failures:
+            logger.debug("FlightStageTask: preflight failures: %s", ", ".join(failures))
+            return False
+        return True
+
+    def _check_arm(self, now: float) -> tuple[bool, list[str]]:
+        """
+        Run arm checks after ARM command received.
+        Returns (all_ok, list_of_failures).
+        Waits _SPINUP_DURATION_S for motors to respond before evaluating RPM.
+        """
+        failures: list[str] = []
+        elapsed = now - self._arm_check_start
+
+        # GPS fix quality
+        gps_valid  = int(self.datastore.read("gps.valid",   default=0))
+        gps_num_sv = int(self.datastore.read("gps.num_sv",  default=0))
+        if not gps_valid or gps_num_sv < _GPS_MIN_SV:
+            failures.append(f"gps_no_fix(sv={gps_num_sv})")
+
+        # Neutral orientation — low yaw rate
+        yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=999.0)))
+        if yaw_rate > _NEUTRAL_YAW_RATE:
+            failures.append(f"yaw_rate_high({yaw_rate:.2f}rad/s)")
+
+        # Motor spin-up — only evaluate after spin-up window
+        if elapsed >= _SPINUP_DURATION_S:
+            rw_rpm = abs(float(self.datastore.read("rw.rpm", default=0.0)))
+            mm_rpm = abs(float(self.datastore.read("mm.rpm", default=0.0)))
+            if rw_rpm < _SPINUP_RPM:
+                failures.append(f"rw_no_spin(rpm={rw_rpm:.0f})")
+            if mm_rpm < _SPINUP_RPM:
+                failures.append(f"mm_no_spin(rpm={mm_rpm:.0f})")
+
+            return len(failures) == 0, failures
+
+        # Still within spin-up window — only report non-motor failures
+        non_motor = [f for f in failures if "spin" not in f]
+        return False, non_motor  # not ready yet
 
     def _detect_launch(self, now: float, baro_alt: float) -> bool:
         """True if altitude gained ≥ _LAUNCH_GAIN_M over the last _LAUNCH_WINDOW_S seconds."""
