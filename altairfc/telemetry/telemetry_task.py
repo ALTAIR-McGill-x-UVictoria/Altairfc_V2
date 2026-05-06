@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import threading
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -11,6 +12,14 @@ from telemetry.serializer import PacketSerializer
 from telemetry.transport import SerialTransport
 
 logger = logging.getLogger(__name__)
+
+_STATS_INTERVAL_S = 2.0
+
+
+def _stats_worker(datastore: DataStore, stop: threading.Event, tasks_fn) -> None:
+    while not stop.wait(timeout=_STATS_INTERVAL_S):
+        for key, value in collect_system_stats(tasks_running=tasks_fn()).items():
+            datastore.write(key, value)
 
 
 class TelemetryTask(BaseTask):
@@ -45,6 +54,14 @@ class TelemetryTask(BaseTask):
         self.transport.open()
         self._packet_list: list[tuple[int, type]] = []
         self._packet_index: int = 0
+        self._stats_stop = threading.Event()
+        self._stats_thread = threading.Thread(
+            target=_stats_worker,
+            args=(self.datastore, self._stats_stop, lambda: len(self._packet_list)),
+            name="telemetry-stats",
+            daemon=True,
+        )
+        self._stats_thread.start()
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
@@ -59,13 +76,6 @@ class TelemetryTask(BaseTask):
 
         if not self._packet_list:
             return
-
-        # Refresh system stats once per full rotation
-        if self._packet_index == 0:
-            for key, value in collect_system_stats(
-                tasks_running=len(self._packet_list)
-            ).items():
-                self.datastore.write(key, value)
 
         # Send one packet this cycle
         packet_id, pkt_class = self._packet_list[self._packet_index]
@@ -93,5 +103,6 @@ class TelemetryTask(BaseTask):
             logger.exception("TelemetryTask: error packing/sending %s", pkt_class.__name__)
 
     def teardown(self) -> None:
+        self._stats_stop.set()
         self.transport.close()
         logger.info("TelemetryTask: transport closed")
