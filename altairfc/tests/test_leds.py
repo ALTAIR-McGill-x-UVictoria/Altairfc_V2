@@ -44,7 +44,7 @@ def setup_pins(pi: pigpio.pi):
 
 
 def set_brightness(pi: pigpio.pi, pin: int, percent: float):
-    """Set LED brightness 0–100%."""
+    """Set LED brightness 0–100%. NLDD-700H is active-high so duty cycle maps directly."""
     dc = int(max(0.0, min(100.0, percent)) * 255 / 100)
     pi.set_PWM_dutycycle(pin, dc)
 
