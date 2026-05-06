@@ -21,7 +21,7 @@ import sys
 
 # --- Pin mapping: physical -> BCM ---
 # Physical 38 = BCM 20
-PIN_B = 20  # Physical pin 38
+PIN_B = 26  # Physical pin 38
 
 PWM_FREQUENCY = 200  # Hz — LDD-700L max is 1 kHz; stay well below for reliable dimming
 
