@@ -115,8 +115,8 @@ class SerialTransport:
                 try:
                     with self._write_lock:
                         self._serial.write(item)
-                        # Pace output to baud rate so we don't flood the radio's TX buffer
-                        time.sleep(len(item) * self._secs_per_byte)
+                    # Pace outside the lock so send_priority can acquire it immediately
+                    time.sleep(len(item) * self._secs_per_byte)
                     logger.debug("Wrote telemetry frame successfully")
                 except serial.SerialException:
                     logger.exception("SerialTransport write error")
