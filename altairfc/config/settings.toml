@@ -47,6 +47,13 @@ period_s = 1.0    # 1 Hz — MAX-M10M default output rate
 enabled  = true
 period_s = 0.5    # 2 Hz
 
+[tasks.datalogger]
+enabled  = true
+period_s = 0.05   # 20 Hz tick — each packet logged at its own TX_RATE_HZ
+
+[datalogger]
+log_root = "logs"   # relative to altairfc/; absolute paths also accepted
+
 [flight_stage]
 termination_altitude_m        = 25000.0   # fire cutdown above this baro MSL altitude (m)
 burst_altitude_m              = 30000.0   # expected natural burst altitude (m)

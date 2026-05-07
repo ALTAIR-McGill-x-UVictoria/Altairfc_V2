@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
 
 # ANSI escape codes
@@ -78,18 +79,26 @@ class ColorFormatter(logging.Formatter):
         return formatted
 
 
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
     """
     Configure the root logger with color output if stdout is a TTY,
     plain output otherwise. Call once at process startup in main.py.
+
+    If log_file is provided, a plain (no ANSI) FileHandler is added alongside
+    the console handler so all output is mirrored to disk.
     """
     use_color = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-    formatter = ColorFormatter(use_color=use_color)
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(handler)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(ColorFormatter(use_color=use_color))
+    root.addHandler(console_handler)
+
+    if log_file is not None:
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(ColorFormatter(use_color=False))
+        root.addHandler(file_handler)
+
     root.setLevel(level)

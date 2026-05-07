@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ from tasks.mm_task import MMTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
 from tasks.pitch_task import PitchTask
+from tasks.datalogger_task import DataLoggerTask
 
 
 def main() -> None:
@@ -83,7 +85,18 @@ def main() -> None:
     logger.info("Loading config from %s", config_path)
     config = SystemConfig.from_toml(config_path)
 
-    setup_logging(config.log_level)
+    # Create the per-session log directory now so both the file logger and
+    # DataLoggerTask share the same timestamped folder.
+    session_name = time.strftime("%Y-%m-%d_%H-%M-%S")
+    datalogger_enabled = config.tasks.get("datalogger", None)
+    if datalogger_enabled and datalogger_enabled.enabled:
+        session_dir = config.log_root / session_name
+        session_dir.mkdir(parents=True, exist_ok=True)
+        setup_logging(config.log_level, log_file=session_dir / "flight.log")
+        logger.info("Log session: %s", session_dir)
+    else:
+        session_dir = None
+        setup_logging(config.log_level)
 
     datastore = DataStore()
 
@@ -219,6 +232,16 @@ def main() -> None:
             i2c_dev=config.tasks["power"].extra.get("i2c_dev", "/dev/i2c-1"),
         )
     )
+
+    if session_dir is not None:
+        scheduler.register(
+            DataLoggerTask(
+                name="datalogger",
+                period_s=config.tasks["datalogger"].period_s,
+                datastore=datastore,
+                log_root=session_dir,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Signal handlers + startup

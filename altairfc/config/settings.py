@@ -92,6 +92,7 @@ class SystemConfig:
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
     watchdog_sec: float = 30.0
+    log_root: Path = field(default_factory=lambda: Path("logs"))
 
     @classmethod
     def from_toml(cls, path: Path) -> "SystemConfig":
@@ -143,6 +144,12 @@ class SystemConfig:
         )
 
         system = data.get("system", {})
+        dl_raw = data.get("datalogger", {})
+        log_root_str = dl_raw.get("log_root", "logs")
+        log_root = Path(log_root_str)
+        if not log_root.is_absolute():
+            log_root = Path(__file__).parent.parent / log_root
+
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
@@ -155,6 +162,7 @@ class SystemConfig:
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s"),
             watchdog_sec=system.get("watchdog_sec"),
+            log_root=log_root,
         )
 
     def get_task(self, name: str) -> TaskConfig | None:
