@@ -165,7 +165,6 @@ def collect_system_stats(tasks_running: int = 0) -> dict[str, float]:
     """
     pps_synced, pps_rms_us = read_pps_stats()
     return {
-        "system.time_unix":     time.time(),
         "system.uptime_s":      time.monotonic() - _BOOT_MONOTONIC,
         "system.cpu_load_pct":  read_cpu_load(),
         "system.mem_used_pct":  read_mem_used_pct(),

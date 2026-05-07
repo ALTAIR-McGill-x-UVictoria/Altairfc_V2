@@ -65,6 +65,7 @@ class TelemetryTask(BaseTask):
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
+        self.datastore.write("system.time_unix", time.time())
         now = time.monotonic()
 
         # Build schedule once on first call — stagger initial deadlines to avoid burst
