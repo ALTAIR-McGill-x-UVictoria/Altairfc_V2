@@ -67,6 +67,7 @@ from tasks.rw_task import RWTask
 from tasks.mm_task import MMTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
+from tasks.pitch_task import PitchTask
 
 
 def main() -> None:
@@ -159,6 +160,14 @@ def main() -> None:
         )
     )
 
+    scheduler.register(
+        PitchTask(
+            name="sphere_pitch",
+            period_s=config.tasks["sphere_pitch"].period_s,
+            datastore=datastore,
+            ground_station=config.ground_station,
+        )
+    )
 
     telemetry_transport = SerialTransport(
         port=config.telemetry.port,
