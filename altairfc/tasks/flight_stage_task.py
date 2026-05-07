@@ -153,10 +153,13 @@ class FlightStageTask(BaseTask):
             "landing_detected":   0,
             "cutdown_fired":      0,
             "recovery_active":    0,
-            "data_logging_active": 0,
+            "data_logging_active":0,
+            "pointing_active":    0,
         }
 
         self._arm_cmd_pending: bool = False
+
+        self._pointing_start_time = None
 
     # ------------------------------------------------------------------
     # BaseTask lifecycle
@@ -206,16 +209,18 @@ class FlightStageTask(BaseTask):
         # Read current settings from DataStore (updated live by UpdateSettingCommand).
         # Fall back to the config object loaded at startup if a key is missing.
         cfg = FlightStageConfig(
-            termination_altitude_m       = float(self.datastore.read("settings.termination_altitude_m",       default=self._cfg.termination_altitude_m)),
-            burst_altitude_m             = float(self.datastore.read("settings.burst_altitude_m",             default=self._cfg.burst_altitude_m)),
-            burst_altitude_uncertainty_m = float(self.datastore.read("settings.burst_altitude_uncertainty_m", default=self._cfg.burst_altitude_uncertainty_m)),
-            ascent_detect_window_s       = float(self.datastore.read("settings.ascent_detect_window_s",       default=self._cfg.ascent_detect_window_s)),
-            ascent_detect_gain_m         = float(self.datastore.read("settings.ascent_detect_gain_m",         default=self._cfg.ascent_detect_gain_m)),
-            apogee_fraction              = float(self.datastore.read("settings.apogee_fraction",              default=self._cfg.apogee_fraction)),
-            landing_fraction             = float(self.datastore.read("settings.landing_fraction",             default=self._cfg.landing_fraction)),
-            recovery_stationary_s        = float(self.datastore.read("settings.recovery_stationary_s",        default=self._cfg.recovery_stationary_s)),
-            termination_confirm_drop_m   = float(self.datastore.read("settings.termination_confirm_drop_m",   default=self._cfg.termination_confirm_drop_m)),
-            termination_confirm_window_s = float(self.datastore.read("settings.termination_confirm_window_s", default=self._cfg.termination_confirm_window_s)),
+            termination_altitude_m       = self._read_required_float("settings.termination_altitude_m"),       
+            burst_altitude_m             = self._read_required_float("settings.burst_altitude_m"),             
+            burst_altitude_uncertainty_m = self._read_required_float("settings.burst_altitude_uncertainty_m"), 
+            ascent_detect_window_s       = self._read_required_float("settings.ascent_detect_window_s"),       
+            ascent_detect_gain_m         = self._read_required_float("settings.ascent_detect_gain_m"),         
+            apogee_fraction              = self._read_required_float("settings.apogee_fraction"),              
+            landing_fraction             = self._read_required_float("settings.landing_fraction"),             
+            recovery_stationary_s        = self._read_required_float("settings.recovery_stationary_s"),        
+            termination_confirm_drop_m   = self._read_required_float("settings.termination_confirm_drop_m"),   
+            termination_confirm_window_s = self._read_required_float("settings.termination_confirm_window_s"), 
+            pointing_activate_altitude_m = self._read_required_float("settings.pointing_activate_altitude_m"),
+            pointing_duration_min        = self._read_required_float("settings.pointing_duration_min"),
         )
 
         # Keep rolling altitude history and update apogee
@@ -226,6 +231,15 @@ class FlightStageTask(BaseTask):
         ))
         if self._stage == STAGE_ASCENT and baro_alt > self._measured_apogee:
             self._measured_apogee = baro_alt
+
+        if (self._stage >= STAGE_LAUNCH and baro_alt >= cfg.pointing_activate_altitude_m and self._pointing_start_time is None):
+            self._pointing_start_time = now
+            self._write_flag("pointing_active", 1)
+        elif self._pointing_start_time is not None:
+            elapsed = now - self._pointing_start_time
+            self.datastore.write("event.motor_control_elapsed_s", elapsed)
+            if elapsed >= cfg.pointing_duration_min * 60.0:
+                self._write_flag("pointing_active", 0)
 
         # Run state transitions
         new_stage = self._transition(now, baro_alt, climb, cfg)
@@ -453,3 +467,9 @@ class FlightStageTask(BaseTask):
         cutoff = now - max_window_s
         while self._alt_history and self._alt_history[0][0] < cutoff:
             self._alt_history.popleft()
+
+    def _read_required_float(self, key: str) -> float:
+        value = self.datastore.read(key, default=None)
+        if value is None:
+            raise RuntimeError(f"Missing required flight setting: {key}")
+        return float(value)

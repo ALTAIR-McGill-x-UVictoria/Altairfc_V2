@@ -64,17 +64,10 @@ class FlightStageConfig:
     recovery_stationary_s:        float = 10.0
     termination_confirm_drop_m:   float = 100.0
     termination_confirm_window_s: float = 30.0
+    pointing_activate_altitude_m: float = 18000.0   
+    pointing_duration_min:        float = 120.0 
 
 
-@dataclass
-class MotorControlConfig:
-    activate_altitude_m: float = 18000.0
-    run_duration_min:    float = 120.0
-
-
-@dataclass
-class PointingConfig:
-    enabled: bool = True
 
 
 @dataclass
@@ -93,8 +86,6 @@ class SystemConfig:
     controller: dict[str, ControllerConfig]
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
-    motor_control: MotorControlConfig = field(default_factory=MotorControlConfig)
-    pointing: PointingConfig = field(default_factory=PointingConfig)
     ground_station: GroundStationConfig = field(
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
     )
@@ -112,8 +103,8 @@ class SystemConfig:
         mm_esc = SerialPortConfig(**data["mm_esc"])
         controller = {}
         for name, cfg in data.get("controller", {}).items():
-            max_val = cfg.get("max_rpm", cfg.get("max_current", 0.0))
-            min_val = cfg.get("min_rpm", cfg.get("min_current", 0.0))
+            max_val = cfg.get("max_rpm", cfg.get("max_current"))
+            min_val = cfg.get("min_rpm", cfg.get("min_current"))
             controller[name] = ControllerConfig(
                 Kp=cfg["Kp"], Ki=cfg["Ki"], Kd=cfg["Kd"],
                 max=max_val, min=min_val,
@@ -130,33 +121,25 @@ class SystemConfig:
 
         fs_raw = data.get("flight_stage", {})
         flight_stage = FlightStageConfig(
-            termination_altitude_m=fs_raw.get("termination_altitude_m", 25000.0),
-            burst_altitude_m=fs_raw.get("burst_altitude_m", 30000.0),
-            burst_altitude_uncertainty_m=fs_raw.get("burst_altitude_uncertainty_m", 2000.0),
-            ascent_detect_window_s=fs_raw.get("ascent_detect_window_s", 30.0),
-            ascent_detect_gain_m=fs_raw.get("ascent_detect_gain_m", 50.0),
-            apogee_fraction=fs_raw.get("apogee_fraction", 0.95),
-            landing_fraction=fs_raw.get("landing_fraction", 0.05),
-            recovery_stationary_s=fs_raw.get("recovery_stationary_s", 10.0),
-            termination_confirm_drop_m=fs_raw.get("termination_confirm_drop_m", 100.0),
-            termination_confirm_window_s=fs_raw.get("termination_confirm_window_s", 30.0),
+            termination_altitude_m=fs_raw.get("termination_altitude_m"),
+            burst_altitude_m=fs_raw.get("burst_altitude_m"),
+            burst_altitude_uncertainty_m=fs_raw.get("burst_altitude_uncertainty_m"),
+            ascent_detect_window_s=fs_raw.get("ascent_detect_window_s"),
+            ascent_detect_gain_m=fs_raw.get("ascent_detect_gain_m"),
+            apogee_fraction=fs_raw.get("apogee_fraction"),
+            landing_fraction=fs_raw.get("landing_fraction"),
+            recovery_stationary_s=fs_raw.get("recovery_stationary_s"),
+            termination_confirm_drop_m=fs_raw.get("termination_confirm_drop_m"),
+            termination_confirm_window_s=fs_raw.get("termination_confirm_window_s"),
+            pointing_activate_altitude_m=fs_raw.get("pointing_activate_altitude_m"),
+            pointing_duration_min=fs_raw.get("pointing_duration_min"),
         )
-
-
-        mc_raw = data.get("motor_control", {})
-        motor_control = MotorControlConfig(
-            activate_altitude_m=mc_raw.get("activate_altitude_m", 18000.0),
-            run_duration_min=mc_raw.get("run_duration_min", 120.0),
-        )
-
-        pointing_raw = data.get("pointing", {})
-        pointing = PointingConfig(enabled=pointing_raw.get("enabled", True))
 
         gs_raw = data.get("ground_station", {})
         ground_station = GroundStationConfig(
-            latitude=gs_raw.get("latitude", 0.0),
-            longitude=gs_raw.get("longitude", 0.0),
-            altitude=gs_raw.get("altitude", 0.0),
+            latitude=gs_raw.get("latitude"),
+            longitude=gs_raw.get("longitude"),
+            altitude=gs_raw.get("altitude"),
         )
 
         system = data.get("system", {})
@@ -168,12 +151,10 @@ class SystemConfig:
             controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,
-            motor_control=motor_control,
-            pointing=pointing,
             ground_station=ground_station,
             log_level=system.get("log_level", "INFO"),
-            monitor_interval_s=system.get("monitor_interval_s", 5.0),
-            watchdog_sec=system.get("watchdog_sec", 30.0),
+            monitor_interval_s=system.get("monitor_interval_s"),
+            watchdog_sec=system.get("watchdog_sec"),
         )
 
     def get_task(self, name: str) -> TaskConfig | None:

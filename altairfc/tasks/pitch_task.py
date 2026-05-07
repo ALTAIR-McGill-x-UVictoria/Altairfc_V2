@@ -32,11 +32,28 @@ class PitchTask(BaseTask):
         self._servo = ServoPointer()
         self._servo.connect()
 
+        while not self._stop_event.is_set():
+            if int(self.datastore.read("event.pointing_active", default=0.0)) == 1:
+                break
+            self._stop_event.wait(timeout=0.5)
+
+        if self._stop_event.is_set():
+            return
+
     def execute(self) -> None:
+        pointing_active = self.datastore.read("event.pointing_active", default=None)
+
+        if pointing_active is None:
+            logger.warning("pointing_active is missing")
+            return
+
+        if int(pointing_active) != 1:
+            logger.info("PitchTask: run duration elapsed — stopping motor")
+            self._stop_event.set()
+            return
+        
         quat, pos, gs_pos, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
-
-
         self._write_pointing(yaw, az_err, pitch_err)
         self._servo.set_pitch_error(pitch_err)
 
@@ -67,7 +84,7 @@ class PitchTask(BaseTask):
         return quat, pos, gs_pos, yaw
 
     def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
-        target_heading = yaw + az_err
+        target_heading = (yaw + az_err + math.pi) % (2.0 * math.pi) - math.pi
         desired_deflection_deg = -math.degrees(pitch_err_rad)
         achieved_deflection_deg = self._servo.achieved_deflection_deg(pitch_err_rad)
         source_angle_error_deg = desired_deflection_deg - achieved_deflection_deg

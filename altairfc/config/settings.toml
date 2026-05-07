@@ -22,6 +22,10 @@ period_s = 0.05   # 20 Hz
 enabled = true
 period_s = 5.0    # 0.2 Hz
 
+[tasks.sphere_pitch]
+enabled = true
+period_s = 1.0
+
 [tasks.photodiode]
 enabled = false
 period_s = 0.01   # 100 Hz
@@ -54,14 +58,13 @@ landing_fraction              = 0.05      # landing declared when alt ≤ this �
 recovery_stationary_s         = 10.0      # seconds of altitude stationary (±2 m) → recovery
 termination_confirm_drop_m    = 100.0     # altitude drop required to confirm cutdown worked (m)
 termination_confirm_window_s  = 30.0      # time window for termination confirmation (s)
+pointing_activate_altitude_m  = 18000.0   # GPS MSL altitude (m) above which motors activate
+pointing_duration_min         = 120.0     # how long to run motor control after activation (minutes)
 
 [system]
 log_level = "INFO"
 monitor_interval_s = 5.0
 watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
-
-[pointing]
-enabled = true
 
 [ground_station]
 latitude = 45.5400
@@ -76,10 +79,6 @@ baud = 115200
 port = "/dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.3:1.0"
 baud = 115200
 
-
-[motor_control]
-activate_altitude_m  = 18000.0   # GPS MSL altitude (m) above which motors activate
-run_duration_min     = 120.0     # how long to run motor control after activation (minutes)
 
 [controller.reaction_wheel]
 Kp = 12740.0

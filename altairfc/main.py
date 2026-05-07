@@ -104,6 +104,8 @@ def main() -> None:
         "settings.recovery_stationary_s":        _fs.recovery_stationary_s,
         "settings.termination_confirm_drop_m":   _fs.termination_confirm_drop_m,
         "settings.termination_confirm_window_s": _fs.termination_confirm_window_s,
+        "settings.pointing_activate_altitude_m": _fs.pointing_activate_altitude_m,
+        "settings.pointing_duration_min":        _fs.pointing_duration_min,
         "settings.rw_kp":          _rw.Kp,
         "settings.rw_kd":          _rw.Kd,
         "settings.rw_max_rpm":     _rw.max,
@@ -112,7 +114,7 @@ def main() -> None:
         "settings.mm_max_current": _mm.max,
     }.items():
         datastore.write(_key, float(_val))
-    logger.info("Wrote 16 flight settings to DataStore")
+    logger.info("Wrote 18 flight settings to DataStore")
 
     scheduler = TaskScheduler(datastore, config)
 
@@ -128,8 +130,6 @@ def main() -> None:
             vesc_port=config.rw_esc,
             controller_config=config.controller["reaction_wheel"],
             ground_station=config.ground_station,
-            pointing_enabled=config.pointing.enabled,
-            motor_control=config.motor_control,
         )
     )
     
@@ -150,7 +150,6 @@ def main() -> None:
         )
     )
 
-
     scheduler.register(
         MMTask(
             name="momentum_management",
@@ -158,7 +157,6 @@ def main() -> None:
             datastore=datastore,
             vesc_port=config.mm_esc,
             controller_config=config.controller["momentum_management"],
-            motor_control=config.motor_control,
         )
     )
 

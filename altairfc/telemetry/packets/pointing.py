@@ -14,7 +14,7 @@ class PointingPacket:
     Packet ID: 0x0A
     Payload size: 4 * 4 = 16 bytes (all float32)
 
-    DataStore keys (written by RWTask each control cycle):
+    DataStore keys (written by PitchTask each control cycle):
         pointing.target_heading_rad   — target yaw toward GS (rad, -π..+π)
         pointing.heading_error_rad    — azimuth error to GS in body frame (rad)
         pointing.source_angle_deg     — commanded source nadir angle (deg)
@@ -32,5 +32,5 @@ class PointingPacket:
 
     target_heading_rad:     float = field(default=0.0, metadata=FieldMeta("f", "Target yaw toward GS",           "rad", min_val=-3.1416, max_val=3.1416).as_metadata())
     heading_error_rad:      float = field(default=0.0, metadata=FieldMeta("f", "Azimuth error to GS",            "rad", min_val=-3.1416, max_val=3.1416).as_metadata())
-    source_angle_deg:       float = field(default=0.0, metadata=FieldMeta("f", "Commanded source nadir angle",   "deg", min_val=0.0,     max_val=90.0  ).as_metadata())
+    source_angle_deg:       float = field(default=0.0, metadata=FieldMeta("f", "Signed source deflection",       "deg", min_val=-22.5,   max_val=22.5  ).as_metadata())
     source_angle_error_deg: float = field(default=0.0, metadata=FieldMeta("f", "Source nadir angle error to GS", "deg", min_val=-90.0,   max_val=90.0  ).as_metadata())
