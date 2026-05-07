@@ -27,13 +27,11 @@ class MMTask(BaseTask):
         
 
     def setup(self) -> None:
-        ## Checking VESC Connection
         self.motor = None
-        try:
-            self.motor = VESCObject(self._vesc_port)
-            logger.info("MMTask: VESC connected on %s", self._vesc_port)
-        except Exception as e:
-            logger.error("MMTask: failed to connect VESC on %s: %s", self._vesc_port, e)
+        self._next_reconnect: float = 0.0
+        self._connect_vesc()
+
+        if self.motor is None:
             return
 
         ## Polling Telemetry During Preflight
@@ -62,8 +60,10 @@ class MMTask(BaseTask):
 
     def execute(self) -> None:
         if self.motor is None:
+            if time.monotonic() >= self._next_reconnect:
+                self._connect_vesc()
             return
-        
+
         pointing_active = self.datastore.read("event.pointing_active", default=None)
 
         if pointing_active is None:
@@ -84,14 +84,27 @@ class MMTask(BaseTask):
         if self.motor is not None:
             self.motor.set_current(0)
 
+    def _connect_vesc(self, retry_interval_s: float = 5.0) -> None:
+        """Block until the VESC connects, retrying every retry_interval_s."""
+        while not self._stop_event.is_set():
+            try:
+                self.motor = VESCObject(self._vesc_port)
+                logger.info("MMTask: VESC connected on %s", self._vesc_port)
+                return
+            except Exception as e:
+                logger.warning("MMTask: waiting for VESC on %s (%s) — retrying in %.0fs",
+                               self._vesc_port, e, retry_interval_s)
+                self._stop_event.wait(timeout=retry_interval_s)
+
     def _store(self) -> None:
         if self.motor is None:
             return
         try:
             data = self.motor.get_data(timeout=0.3)
         except Exception as e:
-            logger.error("MM VESC disconnected during data read: %s", e)
+            logger.error("MMTask: VESC disconnected during data read: %s", e)
             self.motor = None
+            self._next_reconnect = time.monotonic() + 5.0
             return
         if data:
             for f in ('rpm', 'duty_now', 'current_motor', 'current_in',

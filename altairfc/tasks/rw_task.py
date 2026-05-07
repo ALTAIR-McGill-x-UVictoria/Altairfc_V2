@@ -34,15 +34,11 @@ class RWTask(BaseTask):
         
 
     def setup(self) -> None:
-        ## Checking VESC Connection
         self.motor = None
-        try:
-            self.motor = VESCObject(self._vesc_port)
-            self.datastore.write("system.vesc_connected", 1.0)
-            logger.info("RWTask: VESC connected on %s", self._vesc_port)
-        except Exception as e:
-            self.datastore.write("system.vesc_connected", 0.0)
-            logger.error("RWTask: failed to connect VESC on %s: %s", self._vesc_port, e)
+        self._next_reconnect: float = 0.0
+        self._connect_vesc()
+
+        if self.motor is None:
             return
 
         ## Polling Telemetry During Preflight
@@ -73,6 +69,8 @@ class RWTask(BaseTask):
 
     def execute(self) -> None:
         if self.motor is None:
+            if time.monotonic() >= self._next_reconnect:
+                self._connect_vesc()
             return
         pointing_active = self.datastore.read("event.pointing_active", default=None)
 
@@ -97,14 +95,30 @@ class RWTask(BaseTask):
         if self.motor is not None:
             self.motor.set_rpm(0)
 
+    def _connect_vesc(self, retry_interval_s: float = 5.0) -> None:
+        """Block until the VESC connects, retrying every retry_interval_s."""
+        while not self._stop_event.is_set():
+            try:
+                self.motor = VESCObject(self._vesc_port)
+                self.datastore.write("system.vesc_connected", 1.0)
+                logger.info("RWTask: VESC connected on %s", self._vesc_port)
+                return
+            except Exception as e:
+                self.datastore.write("system.vesc_connected", 0.0)
+                logger.warning("RWTask: waiting for VESC on %s (%s) — retrying in %.0fs",
+                               self._vesc_port, e, retry_interval_s)
+                self._stop_event.wait(timeout=retry_interval_s)
+
     def _store(self):
         if self.motor is None:
             return
         try:
             data = self.motor.get_data(timeout=0.3)
         except Exception as e:
-            logger.error("VESC disconnected during data read: %s", e)
+            logger.error("RWTask: VESC disconnected during data read: %s", e)
+            self.motor = None
             self.datastore.write("system.vesc_connected", 0.0)
+            self._next_reconnect = time.monotonic() + 5.0
             return
         if data:
             for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
