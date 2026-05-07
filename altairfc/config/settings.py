@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,20 +8,25 @@ from typing import Any
 
 from drivers.port_detect import find_lr900p_port
 
+logger = logging.getLogger(__name__)
 
-def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig":
+
+def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig | None":
     """
     Build a SerialPortConfig, resolving port="auto" by scanning for a CP210x device.
-    Raises RuntimeError if auto-detect is requested but no device is found.
+    Returns None when port="none" or when auto-detect finds no device (logs a warning).
     """
     port = cfg.get("port", "")
+    if port.lower() == "none":
+        return None
     if port.lower() == "auto":
         detected = find_lr900p_port()
         if detected is None:
-            raise RuntimeError(
-                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected. "
-                "Check the USB connection or set the port explicitly in config/settings.toml."
+            logger.warning(
+                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected — "
+                "telemetry radio disabled. Set port explicitly in config/settings.toml to suppress this."
             )
+            return None
         port = detected
     return SerialPortConfig(port=port, baud=cfg["baud"])
 
@@ -61,6 +67,12 @@ class FlightStageConfig:
 
 
 @dataclass
+class MotorControlConfig:
+    activate_altitude_m: float = 18000.0
+    run_duration_min:    float = 120.0
+
+
+@dataclass
 class PointingConfig:
     enabled: bool = True
 
@@ -75,12 +87,13 @@ class GroundStationConfig:
 @dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
-    telemetry: SerialPortConfig
+    telemetry: SerialPortConfig | None
     rw_esc: SerialPortConfig
     mm_esc: SerialPortConfig
     controller: dict[str, ControllerConfig]
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
+    motor_control: MotorControlConfig = field(default_factory=MotorControlConfig)
     pointing: PointingConfig = field(default_factory=PointingConfig)
     ground_station: GroundStationConfig = field(
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
@@ -130,6 +143,12 @@ class SystemConfig:
         )
 
 
+        mc_raw = data.get("motor_control", {})
+        motor_control = MotorControlConfig(
+            activate_altitude_m=mc_raw.get("activate_altitude_m", 18000.0),
+            run_duration_min=mc_raw.get("run_duration_min", 120.0),
+        )
+
         pointing_raw = data.get("pointing", {})
         pointing = PointingConfig(enabled=pointing_raw.get("enabled", True))
 
@@ -149,6 +168,7 @@ class SystemConfig:
             controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,
+            motor_control=motor_control,
             pointing=pointing,
             ground_station=ground_station,
             log_level=system.get("log_level", "INFO"),

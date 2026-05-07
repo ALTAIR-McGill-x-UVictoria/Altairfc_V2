@@ -19,6 +19,8 @@ class PowerPacket:
         CH3 →  5 V rail   (power.voltage_5v,  power.current_5v)
     """
 
+    TX_RATE_HZ: ClassVar[float] = 1.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "voltage_24v": "power.voltage_24v",
         "current_24v": "power.current_24v",

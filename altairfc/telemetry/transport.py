@@ -106,18 +106,23 @@ class SerialTransport:
     def _writer_loop(self) -> None:
         assert self._serial is not None
         logger.debug("Telemetry writer loop started")
+        _next_send = time.monotonic()
         while True:
             item = self._queue.get()
             if item is _SENTINEL:
                 break
             if isinstance(item, bytes):
-                logger.debug("Writing telemetry frame (%d bytes)", len(item))
+                # Enforce minimum inter-frame gap regardless of queue depth
+                now = time.monotonic()
+                wait = _next_send - now
+                if wait > 0:
+                    time.sleep(wait)
                 try:
                     with self._write_lock:
                         self._serial.write(item)
-                        # Pace output to baud rate so we don't flood the radio's TX buffer
-                        time.sleep(len(item) * self._secs_per_byte)
-                    logger.debug("Wrote telemetry frame successfully")
+                    tx_time = len(item) * self._secs_per_byte
+                    _next_send = time.monotonic() + tx_time
+                    logger.debug("Wrote telemetry frame (%d bytes)", len(item))
                 except serial.SerialException:
                     logger.exception("SerialTransport write error")
             else:

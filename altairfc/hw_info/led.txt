@@ -1,0 +1,2 @@
+LED1: pin 28
+LED2: pin 38, gpio 20

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from config.settings import GroundStationConfig, SerialPortConfig
+from config.settings import GroundStationConfig, MotorControlConfig, SerialPortConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.vesc_interface import VESCObject
@@ -25,6 +25,7 @@ class RWTask(BaseTask):
         controller_config: list,
         ground_station: GroundStationConfig,
         pointing_enabled: bool = True,
+        motor_control: MotorControlConfig | None = None,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._vesc_port = vesc_port.port
@@ -34,25 +35,45 @@ class RWTask(BaseTask):
             ground_station.altitude,
         ]
         self._pointing_enabled = pointing_enabled
+        self._activate_altitude_m = motor_control.activate_altitude_m if motor_control else 0.0
+        self._run_duration_s      = motor_control.run_duration_min * 60.0 if motor_control else float("inf")
+        self._activate_time       = float("inf")
         self.controller = Controller(controller_config, period_s)
         
 
     def setup(self) -> None:
+        from tasks.flight_stage_task import STAGE_LAUNCH
         self.motor = None
         self._servo = ServoPointer()
         self._servo.connect()
 
         try:
             self.motor = VESCObject(self._vesc_port)
-            logger.info("Initialized VESC motor interface on port %s", self._vesc_port)
+            self.datastore.write("system.vesc_connected", 1.0)
+            logger.info("RWTask: VESC connected on %s", self._vesc_port)
         except Exception as e:
-            logger.error("Failed to initialize VESC motor interface on port %s: %s", self._vesc_port, e)
+            self.datastore.write("system.vesc_connected", 0.0)
+            logger.error("RWTask: failed to connect VESC on %s: %s", self._vesc_port, e)
             return
 
-        logger.info("Bringing reaction wheel up to speed")
+        # Poll telemetry during preflight so rw.* keys are available for preflight checks
+        logger.info("RWTask: polling VESC telemetry, waiting for LAUNCH and altitude >= %.0f m", self._activate_altitude_m)
+        while not self._stop_event.is_set():
+            self._store()
+            stage = int(self.datastore.read("event.flight_stage", default=0))
+            alt   = float(self.datastore.read("gps.alt_msl", default=0.0))
+            if stage >= STAGE_LAUNCH and alt >= self._activate_altitude_m:
+                break
+            self._stop_event.wait(timeout=0.5)
+
+        if self._stop_event.is_set():
+            return
+
+        self._activate_time = time.monotonic()
+        logger.info("RWTask: LAUNCH + altitude reached — spinning up reaction wheel")
         self._hold(self.motor.set_rpm, 1700, duration=5.0)
         while not self._stop_event.is_set():
-            logger.info("Stabilizing Payload")
+            logger.info("RWTask: stabilizing payload")
             self._store()
             self.motor.set_rpm(1700)
             yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0)))
@@ -61,6 +82,12 @@ class RWTask(BaseTask):
             time.sleep(0.05)
 
     def execute(self) -> None:
+        if time.monotonic() - self._activate_time > self._run_duration_s:
+            logger.info("RWTask: run duration elapsed — stopping motor")
+            self.motor.set_rpm(0)
+            self._stop_event.set()
+            return
+
         quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
 
@@ -83,21 +110,22 @@ class RWTask(BaseTask):
         self._servo.disconnect()
 
     def _store(self):
-        data = self.motor.get_data(timeout=0.3)
+        if self.motor is None:
+            return
+        try:
+            data = self.motor.get_data(timeout=0.3)
+        except Exception as e:
+            logger.error("VESC disconnected during data read: %s", e)
+            self.motor = None
+            self.datastore.write("system.vesc_connected", 0.0)
+            return
         if data:
-            # Write all GetValues fields into the datastore under the 'rw.' namespace
-            fields = [
-                'can_id', 'temp_fet', 'temp_motor', 'avg_motor_current', 'avg_input_current', 'avg_id',
-                'avg_iq', 'duty_cycle_now', 'rpm', 'v_in', 'amp_hours', 'amp_hours_charged',
-                'watt_hours', 'watt_hours_charged','tachometer', 'tachometer_abs', 'mc_fault_code',
-                'pid_pos_now', 'app_controller_id', 'time_ms',
-            ]
-            for f in fields:
-                try:
-                    val = getattr(data, f, None)
-                except Exception:
-                    val = None
-                self.datastore.write(f"rw.{f}", val)
+            for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
+                      'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
+                      'tachometer_abs'):
+                self.datastore.write(f"rw.{f}", getattr(data, f, 0.0))
+            fault = getattr(data, 'mc_fault_code', b'\x00')
+            self.datastore.write("rw.mc_fault_code", fault[0] if isinstance(fault, (bytes, bytearray)) else int(fault))
 
     def _read(self):
         quat = [

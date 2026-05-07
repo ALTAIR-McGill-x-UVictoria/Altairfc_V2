@@ -53,9 +53,13 @@ class EventPacket:
         8 — Recovery
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "flight_stage":       "event.flight_stage",
         "arm_state":          "event.arm_state",
+        "preflight_ok":       "event.preflight_ok",
+        "arm_checks_ok":      "event.arm_checks_ok",
         "launch_detected":    "event.launch_detected",
         "ascent_active":      "event.ascent_active",
         "termination_fired":  "event.termination_fired",
@@ -69,6 +73,8 @@ class EventPacket:
 
     flight_stage:        int = field(default=0, metadata=FieldMeta("B", "Flight stage",         "stage").as_metadata())
     arm_state:           int = field(default=0, metadata=FieldMeta("B", "Arm state",            "bool").as_metadata())
+    preflight_ok:        int = field(default=0, metadata=FieldMeta("B", "Preflight checks OK",  "bool").as_metadata())
+    arm_checks_ok:       int = field(default=0, metadata=FieldMeta("B", "Arm checks OK",        "bool").as_metadata())
     launch_detected:     int = field(default=0, metadata=FieldMeta("B", "Launch detected",      "bool").as_metadata())
     ascent_active:       int = field(default=0, metadata=FieldMeta("B", "Ascent active",        "bool").as_metadata())
     termination_fired:   int = field(default=0, metadata=FieldMeta("B", "Termination fired",    "bool").as_metadata())

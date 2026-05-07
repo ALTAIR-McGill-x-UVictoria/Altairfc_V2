@@ -15,6 +15,8 @@ class LocalGpsPacket:
     Source: GpsTask -> DataStore "gps.*" keys
     """
 
+    TX_RATE_HZ: ClassVar[float] = 1.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "active":      "gps.active",
         "lat":         "gps.lat",
@@ -48,12 +50,15 @@ class MavlinkGpsPacket:
     hdg from GPS_RAW_INT course-over-ground.
     """
 
+    TX_RATE_HZ: ClassVar[float] = 1.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "lat":          "mavlink.gps.lat",
         "lon":          "mavlink.gps.lon",
         "alt":          "mavlink.gps.alt",
         "relative_alt": "mavlink.gps.relative_alt",
         "hdg":          "mavlink.gps.hdg",
+        "num_sv":       "mavlink.gps.num_sv",
     }
 
     lat:          float = field(default=0.0, metadata=FieldMeta("f", "Latitude",     "deg").as_metadata())
@@ -61,3 +66,4 @@ class MavlinkGpsPacket:
     alt:          float = field(default=0.0, metadata=FieldMeta("f", "Altitude MSL", "m").as_metadata())
     relative_alt: float = field(default=0.0, metadata=FieldMeta("f", "Altitude AGL", "m").as_metadata())
     hdg:          float = field(default=0.0, metadata=FieldMeta("f", "Heading",      "deg").as_metadata())
+    num_sv:       int   = field(default=0,   metadata=FieldMeta("B", "Satellites",   "").as_metadata())

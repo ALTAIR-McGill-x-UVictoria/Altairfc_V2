@@ -3,6 +3,9 @@ from pyvesc.protocol.interface import decode, encode, encode_request
 from pyvesc.VESC.messages.getters import GetValues
 import time
 import serial
+import logging
+
+logger = logging.getLogger(__name__)
 
 class VESCObject:
     def __init__(self, port):
@@ -22,19 +25,23 @@ class VESCObject:
         self.port.write(pkt)
 
     def get_data(self, timeout = 0.02):
-        pkt = encode_request(GetValues)
-        self.port.write(pkt)
+        try:
+            pkt = encode_request(GetValues)
+            self.port.write(pkt)
 
-        t0 = time.perf_counter()
-        while time.perf_counter() - t0 < timeout: # Wait for
-            chunk = self.port.read(512)
-            if chunk:
-                self.buffer += chunk
-            msg, consumed = decode(self.buffer)
-            if consumed > 0:
-                self.buffer = self.buffer[consumed:]
+            t0 = time.perf_counter()
+            while time.perf_counter() - t0 < timeout:
+                chunk = self.port.read(512)
+                if chunk:
+                    self.buffer += chunk
+                msg, consumed = decode(self.buffer)
+                if consumed > 0:
+                    self.buffer = self.buffer[consumed:]
 
-            if msg is not None:
-                return msg
-        return None
+                if msg is not None:
+                    return msg
+            return None
+        except serial.SerialException as e:
+            logger.error("VESC serial error: %s", e)
+            raise
 

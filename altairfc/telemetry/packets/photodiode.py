@@ -20,6 +20,8 @@ class PhotodiodePacket:
         "photodiode.channel_3"
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "channel_0": "photodiode.channel_0",
         "channel_1": "photodiode.channel_1",

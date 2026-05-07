@@ -21,6 +21,8 @@ class PointingPacket:
         pointing.source_angle_error_deg — pitch error converted to source angle error (deg)
     """
 
+    TX_RATE_HZ: ClassVar[float] = 2.0
+
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "target_heading_rad":      "pointing.target_heading_rad",
         "heading_error_rad":       "pointing.heading_error_rad",

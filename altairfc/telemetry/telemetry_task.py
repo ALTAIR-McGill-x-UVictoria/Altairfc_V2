@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import threading
+import time
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -12,21 +14,28 @@ from telemetry.transport import SerialTransport
 
 logger = logging.getLogger(__name__)
 
+_STATS_INTERVAL_S = 2.0
+
+
+def _stats_worker(datastore: DataStore, stop: threading.Event, tasks_fn) -> None:
+    while not stop.wait(timeout=_STATS_INTERVAL_S):
+        for key, value in collect_system_stats(tasks_running=tasks_fn()).items():
+            datastore.write(key, value)
+
 
 class TelemetryTask(BaseTask):
     """
     Collects data from the DataStore, serializes registered packet types,
     and transmits binary frames over the telemetry radio.
 
-    Runs at a configurable rate (default 10 Hz). On each execute():
-      1. Iterates over all registered packet types.
-      2. Reads DataStore keys listed in each packet's DATASTORE_KEYS class var.
-      3. Instantiates each packet with the latest values.
-      4. Packs and sends the binary frame via SerialTransport.
+    The task tick rate (period_s in settings.toml) sets how often execute() runs.
+    Each packet class controls its own TX rate via TX_RATE_HZ — execute() sends
+    whichever packets are due on each tick. Initial deadlines are staggered to
+    avoid a burst on startup.
 
     Adding a new packet type: define it in telemetry/packets/, decorate with
-    @packet_registry.register(packet_id=N), and import it before startup.
-    No changes needed here.
+    @packet_registry.register(packet_id=N), set TX_RATE_HZ, and import it before
+    startup. No changes needed here.
     """
 
     def __init__(
@@ -43,22 +52,51 @@ class TelemetryTask(BaseTask):
 
     def setup(self) -> None:
         self.transport.open()
+        # {packet_id: (pkt_class, next_send_monotonic)}
+        self._packet_schedule: dict[int, tuple[type, float]] = {}
+        self._stats_stop = threading.Event()
+        self._stats_thread = threading.Thread(
+            target=_stats_worker,
+            args=(self.datastore, self._stats_stop, lambda: len(self._packet_schedule)),
+            name="telemetry-stats",
+            daemon=True,
+        )
+        self._stats_thread.start()
         logger.info("TelemetryTask: transport opened")
 
     def execute(self) -> None:
-        for key, value in collect_system_stats(
-            tasks_running=len(packet_registry.all_packets())
-        ).items():
-            self.datastore.write(key, value)
+        now = time.monotonic()
 
-        for packet_id, pkt_class in packet_registry.all_packets().items():
-            keys_map: dict[str, str] = getattr(pkt_class, "DATASTORE_KEYS", {})
-            if not keys_map:
+        # Build schedule once on first call — stagger initial deadlines to avoid burst
+        if not self._packet_schedule:
+            eligible = [
+                (pid, cls) for pid, cls in packet_registry.all_packets().items()
+                if getattr(cls, "DATASTORE_KEYS", {}) and getattr(cls, "TX_RATE_HZ", 0) > 0
+            ]
+            for i, (pid, cls) in enumerate(eligible):
+                period = 1.0 / cls.TX_RATE_HZ
+                # Stagger start times evenly across one period
+                stagger = i * period / max(len(eligible), 1)
+                self._packet_schedule[pid] = (cls, now + stagger)
+
+        if not self._packet_schedule:
+            return
+
+        for packet_id, (pkt_class, next_send) in list(self._packet_schedule.items()):
+            if now < next_send:
                 continue
+
+            period = 1.0 / pkt_class.TX_RATE_HZ
+            # Advance deadline by one period; if we've fallen more than one period behind,
+            # skip ahead to now to avoid a catch-up burst.
+            new_next = next_send + period
+            if new_next < now:
+                new_next = now + period
+            self._packet_schedule[packet_id] = (pkt_class, new_next)
 
             field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
             kwargs: dict[str, object] = {}
-            for field_name, ds_key in keys_map.items():
+            for field_name, ds_key in pkt_class.DATASTORE_KEYS.items():
                 raw = self.datastore.read(ds_key, default=0)
                 kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
 
@@ -78,5 +116,6 @@ class TelemetryTask(BaseTask):
                 logger.exception("TelemetryTask: error packing/sending %s", pkt_class.__name__)
 
     def teardown(self) -> None:
+        self._stats_stop.set()
         self.transport.close()
         logger.info("TelemetryTask: transport closed")

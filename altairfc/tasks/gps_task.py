@@ -6,6 +6,9 @@ import time
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.gps_driver import GpsDriver
+from drivers.mcp23017 import MCP23017, HIGH, LOW
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,13 @@ class GpsTask(BaseTask):
         self.datastore.write("gps.active", 1)
         self._last_ping = time.monotonic()
         logger.info("GpsTask: driver ready on %s", self._i2c_dev)
+        self.io = MCP23017()
+        self._timepulse_led = 0
+        self.io.set_output(self._timepulse_led)
+
+        
+
+        
 
     def execute(self) -> None:
         if self._driver is None:
@@ -89,6 +99,7 @@ class GpsTask(BaseTask):
         self.datastore.write("gps.utc_min",     int(fix.min))
         self.datastore.write("gps.utc_sec",     int(fix.sec))
 
+        self.io.set(self._timepulse_led, HIGH if fix.valid else LOW)
         if fix.valid:
             logger.debug(
                 "GpsTask: fix=3D sv=%d lat=%.6f lon=%.6f alt=%.1fm spd=%.1fm/s",
@@ -96,6 +107,8 @@ class GpsTask(BaseTask):
             )
 
     def teardown(self) -> None:
+        self.io.set(self._timepulse_led, LOW)
+        self.io.close()
         if self._driver is not None:
             self._driver.close()
             self._driver = None
