@@ -60,7 +60,7 @@ class EventPacket:
         "arm_state":          "event.arm_state",
         "preflight_ok":       "event.preflight_ok",
         "arm_checks_ok":      "event.arm_checks_ok",
-        "launch_initiated":    "event.launch_initiated",
+        "launch_initiated":   "event.launch_initiated",
         "ascent_active":      "event.ascent_active",
         "termination_fired":  "event.termination_fired",
         "burst_detected":     "event.burst_detected",
@@ -69,6 +69,7 @@ class EventPacket:
         "cutdown_fired":      "event.cutdown_fired",
         "recovery_active":    "event.recovery_active",
         "data_logging_active":"event.data_logging_active",
+        "apogee_m":           "event.apogee_m",
     }
 
     flight_stage:        int = field(default=0, metadata=FieldMeta("B", "Flight stage",         "stage").as_metadata())
@@ -83,4 +84,5 @@ class EventPacket:
     landing_detected:    int = field(default=0, metadata=FieldMeta("B", "Landing detected",     "bool").as_metadata())
     cutdown_fired:       int = field(default=0, metadata=FieldMeta("B", "Cutdown fired",        "bool").as_metadata())
     recovery_active:     int = field(default=0, metadata=FieldMeta("B", "Recovery active",      "bool").as_metadata())
-    data_logging_active: int = field(default=0, metadata=FieldMeta("B", "Data logging active",  "bool").as_metadata())
+    data_logging_active: int   = field(default=0,   metadata=FieldMeta("B", "Data logging active", "bool").as_metadata())
+    apogee_m:            float = field(default=0.0, metadata=FieldMeta("f", "Measured apogee",     "m").as_metadata())

@@ -235,6 +235,7 @@ class FlightStageTask(BaseTask):
         ))
         if self._stage == STAGE_ASCENT and baro_alt > self._measured_apogee:
             self._measured_apogee = baro_alt
+        self.datastore.write("event.apogee_m", self._measured_apogee)
 
         if (self._stage >= STAGE_LAUNCH and baro_alt >= cfg.pointing_activate_altitude_m and self._pointing_start_time is None):
             self._pointing_start_time = now
