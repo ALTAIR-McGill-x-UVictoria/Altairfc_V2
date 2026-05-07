@@ -106,7 +106,7 @@ class FlightStageTask(BaseTask):
         event.arm_state               — set externally to 1 to arm
 
     DataStore keys written (all under "event.*"):
-        flight_stage, launch_detected, ascent_active,
+        flight_stage, launch_initiated, ascent_active,
         termination_fired, burst_detected, cutdown_fired,
         descent_active, landing_detected, recovery_active
     """
@@ -128,6 +128,9 @@ class FlightStageTask(BaseTask):
         # Rolling history: deque of (timestamp, altitude) tuples
         self._alt_history: deque[tuple[float, float]] = deque()
 
+        # Altitude at the moment LAUNCH_OK was received — ascent is detected relative to this
+        self._launch_ok_alt: float | None = None
+
         # Termination confirmation tracking
         self._cutdown_triggered_alt: float | None = None
         self._cutdown_trigger_time: float | None = None
@@ -145,7 +148,7 @@ class FlightStageTask(BaseTask):
             "arm_state":          0,
             "preflight_ok":       0,
             "arm_checks_ok":      0,
-            "launch_detected":    0,
+            "launch_initiated":    0,
             "ascent_active":      0,
             "termination_fired":  0,
             "burst_detected":     0,
@@ -193,9 +196,10 @@ class FlightStageTask(BaseTask):
         if float(self.datastore.read("command.launch_ok", default=0.0)) >= 1.0:
             self.datastore.write("command.launch_ok", 0.0)
             if self._stage == STAGE_ARMED and self._flags["arm_checks_ok"]:
-                self._write_flag("launch_detected", 1)
+                self._write_flag("launch_initiated", 1)
                 self._stage = STAGE_LAUNCH
-                logger.info("FlightStageTask: LAUNCH_OK received — advancing to STAGE_LAUNCH")
+                self._launch_ok_alt = baro_alt
+                logger.info("FlightStageTask: LAUNCH_OK received — advancing to STAGE_LAUNCH (ref alt=%.1f m)", baro_alt)
             else:
                 logger.warning(
                     "FlightStageTask: LAUNCH_OK rejected (stage=%d arm_checks_ok=%d)",
@@ -284,11 +288,11 @@ class FlightStageTask(BaseTask):
         elif stage == STAGE_ARMED:
             self._write_flag("arm_state", 1)
             if self._detect_launch(now, baro_alt):
-                self._write_flag("launch_detected", 1)
+                self._write_flag("launch_initiated", 1)
                 return STAGE_LAUNCH
 
         elif stage == STAGE_LAUNCH:
-            if self._detect_ascent(now, baro_alt, cfg):
+            if self._detect_ascent(baro_alt, cfg):
                 self._write_flag("ascent_active", 1)
                 self._measured_apogee = baro_alt
                 return STAGE_ASCENT
@@ -443,14 +447,11 @@ class FlightStageTask(BaseTask):
         oldest_alt = old_pts[-1][1]
         return (baro_alt - oldest_alt) >= _LAUNCH_GAIN_M
 
-    def _detect_ascent(self, now: float, baro_alt: float, cfg: FlightStageConfig) -> bool:
-        """True if altitude gained ≥ ascent_detect_gain_m over ascent_detect_window_s."""
-        cutoff = now - cfg.ascent_detect_window_s
-        old_pts = [(t, a) for t, a in self._alt_history if t <= cutoff]
-        if not old_pts:
+    def _detect_ascent(self, baro_alt: float, cfg: FlightStageConfig) -> bool:
+        """True if altitude has gained ≥ ascent_detect_gain_m above the LAUNCH_OK reference altitude."""
+        if self._launch_ok_alt is None:
             return False
-        oldest_alt = old_pts[-1][1]
-        return (baro_alt - oldest_alt) >= cfg.ascent_detect_gain_m
+        return (baro_alt - self._launch_ok_alt) >= cfg.ascent_detect_gain_m
 
     # ------------------------------------------------------------------
     # Utilities
