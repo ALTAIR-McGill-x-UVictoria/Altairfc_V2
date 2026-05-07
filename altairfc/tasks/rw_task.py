@@ -30,6 +30,7 @@ class RWTask(BaseTask):
             ground_station.longitude,
             ground_station.altitude,
         ]
+        self._gs_use_hardcoded = ground_station.use_hardcoded
         self.controller = Controller(controller_config, period_s)
         
 
@@ -140,13 +141,16 @@ class RWTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        gs_lat = self.datastore.read("command.gs_lat", default=None)
-        gs_lon = self.datastore.read("command.gs_lon", default=None)
-        gs_alt = self.datastore.read("command.gs_alt", default=None)
-        gs_pos = (
-            [float(gs_lat), float(gs_lon), float(gs_alt)]
-            if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
-        )
+        if not self._gs_use_hardcoded:
+            gs_lat = self.datastore.read("command.gs_lat", default=None)
+            gs_lon = self.datastore.read("command.gs_lon", default=None)
+            gs_alt = self.datastore.read("command.gs_alt", default=None)
+            gs_pos = (
+                [float(gs_lat), float(gs_lon), float(gs_alt)]
+                if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
+            )
+        else:
+            gs_pos = self._default_gs_pos
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         return quat, pos, gs_pos, yaw_rate
 

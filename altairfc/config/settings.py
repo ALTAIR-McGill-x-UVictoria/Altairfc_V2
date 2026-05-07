@@ -75,6 +75,7 @@ class GroundStationConfig:
     latitude: float
     longitude: float
     altitude: float
+    use_hardcoded: bool = True
 
 
 @dataclass
@@ -141,6 +142,7 @@ class SystemConfig:
             latitude=gs_raw.get("latitude"),
             longitude=gs_raw.get("longitude"),
             altitude=gs_raw.get("altitude"),
+            use_hardcoded=gs_raw.get("use_hardcoded", True),
         )
 
         system = data.get("system", {})
