@@ -127,6 +127,10 @@ def main() -> None:
         "settings.mm_max_current": _mm.max,
     }.items():
         datastore.write(_key, float(_val))
+    datastore.write("settings.gs_use_hardcoded", 1.0 if config.ground_station.use_hardcoded else 0.0)
+    datastore.write("settings.gs_lat", float(config.ground_station.latitude))
+    datastore.write("settings.gs_lon", float(config.ground_station.longitude))
+    datastore.write("settings.gs_alt", float(config.ground_station.altitude))
     logger.info("Wrote 18 flight settings to DataStore")
 
     scheduler = TaskScheduler(datastore, config)

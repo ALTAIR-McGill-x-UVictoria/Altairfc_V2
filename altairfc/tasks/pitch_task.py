@@ -26,7 +26,6 @@ class PitchTask(BaseTask):
             ground_station.longitude,
             ground_station.altitude,
         ]
-        self._gs_use_hardcoded = ground_station.use_hardcoded
         
 
     def setup(self) -> None:
@@ -74,7 +73,14 @@ class PitchTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        if not self._gs_use_hardcoded:
+        use_hardcoded = float(self.datastore.read("settings.gs_use_hardcoded", default=1.0)) >= 1.0
+        if use_hardcoded:
+            gs_pos = [
+                float(self.datastore.read("settings.gs_lat", default=self._default_gs_pos[0])),
+                float(self.datastore.read("settings.gs_lon", default=self._default_gs_pos[1])),
+                float(self.datastore.read("settings.gs_alt", default=self._default_gs_pos[2])),
+            ]
+        else:
             gs_lat = self.datastore.read("command.gs_lat", default=None)
             gs_lon = self.datastore.read("command.gs_lon", default=None)
             gs_alt = self.datastore.read("command.gs_alt", default=None)
@@ -82,8 +88,6 @@ class PitchTask(BaseTask):
                 [float(gs_lat), float(gs_lon), float(gs_alt)]
                 if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
             )
-        else:
-            gs_pos = self._default_gs_pos
         yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         return quat, pos, gs_pos, yaw
 
