@@ -59,12 +59,17 @@ class FlightSettingsPacket:
         "mm_max_current":               "settings.mm_max_current",
         "pointing_activate_altitude_m": "settings.pointing_activate_altitude_m",
         "pointing_duration_min":        "settings.pointing_duration_min",
+        "gs_use_hardcoded":             "settings.gs_use_hardcoded",
+        "gs_lat":                       "settings.gs_lat",
+        "gs_lon":                       "settings.gs_lon",
+        "gs_alt":                       "settings.gs_alt",
     }
 
     _FP  = "Flight Parameters"
     _RW  = "Reaction Wheel PID"
     _MM  = "Momentum Management PID"
     _PT  = "Pointing"
+    _GS  = "Ground Station"
 
     termination_altitude_m:       float = field(default=0.0, metadata=FieldMeta("f", "Cutdown altitude",                   "m",        group=_FP, min_val=0.0,     max_val=40000.0).as_metadata())
     burst_altitude_m:             float = field(default=0.0, metadata=FieldMeta("f", "Expected burst altitude",            "m",        group=_FP, min_val=0.0,     max_val=40000.0).as_metadata())
@@ -84,3 +89,7 @@ class FlightSettingsPacket:
     mm_max_current:               float = field(default=0.0, metadata=FieldMeta("f", "Momentum management max current",   "mA",       group=_MM, min_val=0.0,     max_val=5000.0 ).as_metadata())
     pointing_activate_altitude_m: float = field(default=0.0, metadata=FieldMeta("f", "Pointing activate altitude",        "m",        group=_PT, min_val=0.0,     max_val=40000.0).as_metadata())
     pointing_duration_min:        float = field(default=0.0, metadata=FieldMeta("f", "Pointing duration",                 "min",      group=_PT, min_val=0.0,     max_val=300.0  ).as_metadata())
+    gs_use_hardcoded:             float = field(default=1.0, metadata=FieldMeta("f", "GS use hardcoded coords",           "bool",     group=_GS, min_val=0.0,     max_val=1.0    ).as_metadata())
+    gs_lat:                       float = field(default=0.0, metadata=FieldMeta("f", "GS latitude",                      "deg",      group=_GS, min_val=-90.0,   max_val=90.0   ).as_metadata())
+    gs_lon:                       float = field(default=0.0, metadata=FieldMeta("f", "GS longitude",                     "deg",      group=_GS, min_val=-180.0,  max_val=180.0  ).as_metadata())
+    gs_alt:                       float = field(default=0.0, metadata=FieldMeta("f", "GS altitude",                      "m",        group=_GS, min_val=-500.0,  max_val=6000.0 ).as_metadata())
