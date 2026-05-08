@@ -1,0 +1,189 @@
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mmain[0m  Log session: /home/altairfc/ALTAIR_FC_V2/altairfc/logs/2026-05-07_19-32-42
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mmain[0m  Wrote 18 flight settings to DataStore
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.scheduler[0m  Task photodiode is disabled in config, skipping registration
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mmain[0m  Starting ALTAIR V2 flight computer
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.scheduler[0m  Starting 10 task(s)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task reaction_wheel started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: connecting to /dev/serial/by-id/usb-Auterion_PX4_FMU_v6X.x_0-if00 @ 115200 baud
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task mavlink started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task gps started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mdrivers.gps_driver[0m  GpsDriver: opened /dev/i2c-1 (fd=8)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.rw_task[0m  RWTask: VESC connected on /dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.4:1.0
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.gps_task[0m  GpsTask: driver ready on /dev/i2c-1
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task momentum_management started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task sphere_pitch started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mm_task[0m  MMTask: VESC connected on /dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.3:1.0
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mdrivers.mcp23017[0m  MCP23017: opened bus 1 address 0x24
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task telemetry started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ready (sharing transport with TelemetryTask)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task command_receiver started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mdrivers.servo[0m  pigpio connected; servo on GPIO 26
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.flight_stage_task[0m  FlightStageTask: initializing — writing all event.* keys to 0
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task flight_stage started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task power started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtelemetry.transport[0m  SerialTransport opened /dev/ttyUSB0 @ 57600 baud
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mdrivers.ina3221_driver[0m  INA3221Driver: opened /dev/i2c-1 (fd=26)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task datalogger started
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.datalogger_task[0m  DataLoggerTask: logging to /home/altairfc/ALTAIR_FC_V2/altairfc/logs/2026-05-07_19-32-42
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.watchdog[0m  Watchdog started (ping interval 15.0s)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtelemetry.telemetry_task[0m  TelemetryTask: transport opened
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.datalogger_task[0m  DataLoggerTask: opened 12 CSV files
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: heartbeat received (system 1, component 0)
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=30 at 50.0 Hz
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=31 at 50.0 Hz
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=24 at 5.0 Hz
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=32 at 5.0 Hz
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=29 at 5.0 Hz
+2026-05-07T19:32:42  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: requested MSG_ID=74 at 5.0 Hz
+2026-05-07T19:32:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:32:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=18 status=0)
+2026-05-07T19:32:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:32:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=19 status=0)
+2026-05-07T19:32:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:32:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=20 status=0)
+2026-05-07T19:33:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=21 status=0)
+2026-05-07T19:33:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=22 status=0)
+2026-05-07T19:33:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=23 status=0)
+2026-05-07T19:33:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=24 status=0)
+2026-05-07T19:33:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=25 status=0)
+2026-05-07T19:33:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=26 status=0)
+2026-05-07T19:33:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=27 status=0)
+2026-05-07T19:33:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=28 status=0)
+2026-05-07T19:33:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=29 status=0)
+2026-05-07T19:33:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=30 status=0)
+2026-05-07T19:33:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=31 status=0)
+2026-05-07T19:33:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:33:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=32 status=0)
+2026-05-07T19:34:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=33 status=0)
+2026-05-07T19:34:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=34 status=0)
+2026-05-07T19:34:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=35 status=0)
+2026-05-07T19:34:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=36 status=0)
+2026-05-07T19:34:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=37 status=0)
+2026-05-07T19:34:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=38 status=0)
+2026-05-07T19:34:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=39 status=0)
+2026-05-07T19:34:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=40 status=0)
+2026-05-07T19:34:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=41 status=0)
+2026-05-07T19:34:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=42 status=0)
+2026-05-07T19:34:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=43 status=0)
+2026-05-07T19:34:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:34:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=44 status=0)
+2026-05-07T19:35:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=45 status=0)
+2026-05-07T19:35:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=46 status=0)
+2026-05-07T19:35:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=47 status=0)
+2026-05-07T19:35:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=48 status=0)
+2026-05-07T19:35:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=49 status=0)
+2026-05-07T19:35:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=50 status=0)
+2026-05-07T19:35:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=51 status=0)
+2026-05-07T19:35:32  [1m[38;5;220mWARNING [0m  [2m[38;5;213mdrivers.gps_driver[0m  GpsDriver: I2C error during read
+2026-05-07T19:35:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=52 status=0)
+2026-05-07T19:35:38  [1m[38;5;220mWARNING [0m  [2m[38;5;213mdrivers.gps_driver[0m  GpsDriver: I2C error during read
+2026-05-07T19:35:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=53 status=0)
+2026-05-07T19:35:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=54 status=0)
+2026-05-07T19:35:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=55 status=0)
+2026-05-07T19:35:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:35:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=56 status=0)
+2026-05-07T19:36:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=57 status=0)
+2026-05-07T19:36:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=58 status=0)
+2026-05-07T19:36:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=59 status=0)
+2026-05-07T19:36:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=60 status=0)
+2026-05-07T19:36:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=61 status=0)
+2026-05-07T19:36:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=62 status=0)
+2026-05-07T19:36:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=63 status=0)
+2026-05-07T19:36:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=64 status=0)
+2026-05-07T19:36:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=65 status=0)
+2026-05-07T19:36:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=66 status=0)
+2026-05-07T19:36:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=67 status=0)
+2026-05-07T19:36:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:36:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=68 status=0)
+2026-05-07T19:37:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=69 status=0)
+2026-05-07T19:37:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=70 status=0)
+2026-05-07T19:37:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:10  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=71 status=0)
+2026-05-07T19:37:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:15  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=72 status=0)
+2026-05-07T19:37:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:20  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=73 status=0)
+2026-05-07T19:37:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:25  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=74 status=0)
+2026-05-07T19:37:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:30  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=75 status=0)
+2026-05-07T19:37:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:35  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=76 status=0)
+2026-05-07T19:37:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:40  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=77 status=0)
+2026-05-07T19:37:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:45  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=78 status=0)
+2026-05-07T19:37:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:50  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=79 status=0)
+2026-05-07T19:37:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:37:55  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=80 status=0)
+2026-05-07T19:38:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:38:00  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=81 status=0)
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: GsGpsCommandPacket → wrote 3 keys
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.command_receiver_task[0m  CommandReceiverTask: ACK sent (cmd_id=0xC4 cmd_seq=82 status=0)
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.lifecycle[0m  Received SIGINT — initiating graceful shutdown
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mmain[0m  Shutdown event received — stopping all tasks
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.watchdog[0m  Watchdog stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.scheduler[0m  Stopping all tasks
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.datalogger_task[0m  DataLoggerTask: all CSV files closed
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task datalogger stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task power stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task flight_stage stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task command_receiver stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtelemetry.transport[0m  SerialTransport closed
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtelemetry.telemetry_task[0m  TelemetryTask: transport closed
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task telemetry stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task sphere_pitch stopped
+2026-05-07T19:38:05  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task momentum_management stopped
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.gps_task[0m  GpsTask: driver closed
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task gps stopped
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mtasks.mavlink_task[0m  MavlinkTask: connection closed
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task mavlink stopped
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mcore.task_base[0m  Task reaction_wheel stopped
+2026-05-07T19:38:06  [1m[38;5;51mINFO    [0m  [2m[38;5;213mmain[0m  ALTAIR V2 shutdown complete

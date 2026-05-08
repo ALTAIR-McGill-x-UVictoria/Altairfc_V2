@@ -83,10 +83,10 @@ class RWTask(BaseTask):
             self._stop_event.set()
             return
         
-        quat, pos, gs_pos, yaw_rate = self._read()
+        quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, _ = compute_error(quat, pos, gs_coords=gs_pos)
         self._store()
-        control_signal = self.controller.output(az_err, yaw_rate) + 1700.0
+        control_signal = self.controller.output(yaw, yaw_rate) + 1700.0
         logger.info("yaw_error:%f, control signal: %f", az_err, control_signal)
         self.motor.set_rpm(int(control_signal))
 
@@ -156,7 +156,8 @@ class RWTask(BaseTask):
                 if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
             )
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
-        return quat, pos, gs_pos, yaw_rate
+        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        return quat, pos, gs_pos, yaw_rate, yaw
 
     def _hold(self, fn, value, duration, dt = 0.05):
         start_time = time.time()
