@@ -83,6 +83,10 @@ class RWTask(BaseTask):
             self._stop_event.set()
             return
         
+        self.controller.Kp        = float(self.datastore.read("settings.rw_kp",      default=self.controller.Kp))
+        self.controller.Kd        = float(self.datastore.read("settings.rw_kd",      default=self.controller.Kd))
+        self.controller.max_value = float(self.datastore.read("settings.rw_max_rpm", default=self.controller.max_value))
+
         quat, pos, gs_pos, yaw_rate, yaw = self._read()
         az_err, _ = compute_error(quat, pos, gs_coords=gs_pos)
         self._store()
