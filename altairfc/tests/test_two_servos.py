@@ -1,7 +1,7 @@
 import pigpio
 import time
 
-SERVO_PIN_A = 15
+SERVO_PIN_A = 16
 SERVO_PIN_B = 26
 
 # Connect to pigpio daemon
