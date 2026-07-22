@@ -1,8 +1,8 @@
 import pigpio
 import time
 
-SERVO_PIN_A = 20
-SERVO_PIN_B = 21
+SERVO_PIN_A = 15
+SERVO_PIN_B = 26
 
 # Connect to pigpio daemon
 pi = pigpio.pi()
