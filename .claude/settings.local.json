@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -h \"struct.calcsize\\\\|format\\\\|_FMT\\\\|_FORMAT\\\\|STRUCT\" \"c:/Users/bdagn/Documents/GitHub/Altairfc_V2/altairfc/telemetry/packets/\"*.py)"
+      "Bash(grep -h \"struct.calcsize\\\\|format\\\\|_FMT\\\\|_FORMAT\\\\|STRUCT\" \"c:/Users/bdagn/Documents/GitHub/Altairfc_V2/altairfc/telemetry/packets/\"*.py)",
+      "Read(//home/bdagn/.ssh/**)",
+      "Bash(ssh-keygen -t ed25519 -C \"$\\(whoami\\)@$\\(hostname\\)-altairfc\" -f ~/.ssh/id_ed25519_altairfc -N \"\")",
+      "Bash(ssh-copy-id -i ~/.ssh/id_ed25519_altairfc.pub altairfc)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=5 altairfc \"echo connected as \\\\$\\(whoami\\) on \\\\$\\(hostname\\)\")"
     ]
   }
 }

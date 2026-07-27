@@ -1,0 +1,431 @@
+"""Far-field goniometric scan of the integrating sphere's exit port.
+
+Sweeps the sphere through one hemisphere of emission directions on the
+two-axis servo jig while a fixed photodiode measures the port's brightness,
+producing the raw data for I(theta, phi, lambda).  Requirements come from
+ALTAIR-analysis/Experiment_Design/01_source_calibration.md; the ones that
+shape this script:
+
+  * Each LED is scanned individually.  Angular response must not be assumed
+    shared between wavelengths, so --leds drives one colour at a time rather
+    than the all-on condition used for the spectral calibration.
+  * Both angles are scanned.  Polar theta from the port normal and azimuth phi
+    about it.  Scanning several azimuths is a symmetry *check*, not padding —
+    if it fails, the deliverable becomes a 2D map and the flight pipeline needs
+    gondola roll at each flash.
+  * Every point carries an error bar, so --samples repeats per angle and each
+    sample is its own CSV row.
+
+Three things the requirements imply but do not spell out, all done here:
+
+  * A dark frame opens every azimuth arm (LEDs off, same sample count,
+    led="dark").  At a 2 mm aperture and 50 cm this is not optional.
+  * The first angle is repeated at the end of the scan, bounding source drift
+    across the run — the within-scan version of the doc's before/after check.
+  * Rows are flushed as they are measured, so an interrupted scan keeps its data.
+
+Usage:
+    python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth 0:180:90 --leds blue
+    python tests/scan_goniometer.py --home
+    python tests/scan_goniometer.py --polar -90:90:5 --azimuth 0:180:45 \\
+        --leds blue red --settle 2.0 --samples 20 --csv scan_2026-07-27.csv
+
+Budget the run.  ads1220_read_single_shot() is not DRDY-driven: it sleeps a
+fixed ~75 ms per conversion at 20 SPS (ads1220_driver.c), so 20 samples costs
+~1.5 s of external-photodiode reads alone before settle time.  --dry-run
+prints the resulting estimate; check it before starting.
+
+Run from altairfc/.  Requires: sudo pigpiod
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from drivers.goniometer import (  # noqa: E402
+    DEFAULT_CALIBRATION_PATH,
+    GoniometerStage,
+    load_calibration,
+    save_calibration,
+)
+from drivers.sphere_led import Color  # noqa: E402
+from tests.sphere_rig import LED_WAVELENGTH_NM, RigCsvWriter, SphereRig  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+DARK_LABEL = "dark"
+REPEAT_SUFFIX = "_repeat"  # must match reduce_goniometer.py in the NRC-calibration repo
+EXTERNAL_READ_S = 0.075  # fixed sleep inside ads1220_read_single_shot()
+
+
+def parse_range(spec: str) -> list[float]:
+    """Parse 'start:stop:step' into an inclusive list of angles.
+
+    A single value ('0') or a zero/absent step yields one angle, so a
+    single-point scan is 'start:start:1'.
+    """
+    parts = spec.split(":")
+    if len(parts) == 1:
+        return [float(parts[0])]
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(f"expected 'start:stop:step', got {spec!r}")
+    start, stop, step = (float(p) for p in parts)
+    if step <= 0:
+        raise argparse.ArgumentTypeError(f"step must be positive, got {step}")
+    if start == stop:
+        return [start]
+    if stop < start:
+        raise argparse.ArgumentTypeError(f"stop must be >= start, got {spec!r}")
+
+    values = []
+    n = int(round((stop - start) / step))
+    for i in range(n + 1):
+        values.append(start + i * step)
+    # Include the endpoint when the step does not divide the span evenly.
+    if abs(values[-1] - stop) > 1e-9:
+        values.append(stop)
+    return values
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Far-field goniometric scan of the sphere exit port."
+    )
+    parser.add_argument(
+        "--polar", type=parse_range, default="-90:90:15",
+        help="Polar theta range from the port normal, 'start:stop:step' in degrees",
+    )
+    parser.add_argument(
+        "--azimuth", type=parse_range, default="0:180:45",
+        help="Azimuth phi range about the normal, 'start:stop:step' in degrees",
+    )
+    parser.add_argument(
+        "--leds", nargs="+", default=["blue"], choices=[c.value for c in Color],
+        help="LEDs to scan, one at a time, in this order",
+    )
+    parser.add_argument("--code", type=int, default=2047, help="12-bit DAC code per LED (0-4095)")
+    parser.add_argument(
+        "--target-current", type=float, default=None,
+        help="Hold this drive current (amps) with the PI loop during the scan "
+        "instead of a fixed DAC code — recommended for long scans",
+    )
+    parser.add_argument("--samples", type=int, default=20, help="Samples per angle")
+    parser.add_argument("--settle", type=float, default=2.0, help="Dwell after each move, seconds")
+    parser.add_argument(
+        "--warmup", type=float, default=60.0,
+        help="Seconds to hold each LED lit before its first measurement",
+    )
+    parser.add_argument("--slew-rate", type=float, default=30.0, help="Stage slew rate, deg/s")
+    parser.add_argument("--csv", type=Path, default=None, help="Output CSV path")
+    parser.add_argument("--bus", type=int, default=1, help="I2C bus number")
+    parser.add_argument("--i2c-dev", default="/dev/i2c-1", help="I2C device node for the MCP4728")
+    parser.add_argument("--no-ldac", action="store_true", help="Don't drive LDAC")
+    parser.add_argument("--no-pdro", action="store_true", help="Skip the two sphere photodiodes")
+    parser.add_argument("--no-external", action="store_true", help="Skip the external photodiode")
+    parser.add_argument(
+        "--no-dark", action="store_true", help="Skip the per-arm dark frames (not recommended)"
+    )
+    parser.add_argument(
+        "--no-repeat", action="store_true", help="Skip the end-of-scan drift-check repeat"
+    )
+    parser.add_argument(
+        "--calibration", type=Path, default=DEFAULT_CALIBRATION_PATH,
+        help="Axis calibration JSON written by --home",
+    )
+    parser.add_argument(
+        "--home", action="store_true",
+        help="Interactive axis homing: set the mechanical zeros and save them, then exit",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the sequence, row count and duration estimate; touch no hardware",
+    )
+    return parser
+
+
+def estimate_seconds(args, n_points: int, n_dark: int) -> float:
+    """Rough wall-clock estimate: moves, settles, and per-sample read cost."""
+    per_sample = 0.0
+    if not args.no_external:
+        per_sample += EXTERNAL_READ_S
+    if not args.no_pdro:
+        per_sample += 0.02  # two ADS124S08 conversions at SPS_100 plus relay overhead
+    per_sample += 0.05  # ADS1115 current + bridge, one-shot each
+
+    dwell = args.samples * per_sample
+    moves = (n_points + n_dark) * args.settle
+    warmup = args.warmup * len(args.leds)
+    return moves + (n_points + n_dark) * dwell + warmup
+
+
+def describe(args) -> tuple[int, int]:
+    """Print the planned sequence; return (measurement points, dark frames)."""
+    n_points = len(args.leds) * len(args.azimuth) * len(args.polar)
+    n_dark = 0 if args.no_dark else len(args.leds) * len(args.azimuth)
+    if not args.no_repeat:
+        n_points += len(args.leds)
+
+    print(f"LEDs      : {', '.join(args.leds)}")
+    print(f"Azimuth   : {len(args.azimuth)} x {_fmt_list(args.azimuth)} deg")
+    print(f"Polar     : {len(args.polar)} x {_fmt_list(args.polar)} deg")
+    print(f"Samples   : {args.samples} per angle")
+    print(f"Points    : {n_points} measurement + {n_dark} dark")
+    print(f"Rows      : {(n_points + n_dark) * args.samples}")
+    print(f"Estimate  : {estimate_seconds(args, n_points, n_dark) / 60.0:.1f} minutes")
+    if len(args.azimuth) < 2:
+        print(
+            "\n[WARN] Only one azimuth. The azimuthal-symmetry check requires at least two,\n"
+            "       and without it the I(theta) collapse cannot be justified\n"
+            "       (Experiment_Design/01_source_calibration.md, section 2 step 4)."
+        )
+    return n_points, n_dark
+
+
+def _fmt_list(values: list[float]) -> str:
+    if len(values) <= 4:
+        return ", ".join(f"{v:g}" for v in values)
+    return f"{values[0]:g} .. {values[-1]:g}"
+
+
+HOME_REFERENCE = {
+    "polar": (0.0, "the exit port normal pointing straight at the detector"),
+    "azimuth": (0.0, "the jig's azimuth fiducial mark"),
+}
+
+
+def run_home(args) -> int:
+    """Interactively establish each axis' mechanical mapping and persist it.
+
+    You jog in raw servo degrees until the stage is physically at a known
+    reference angle, then accept it. That pairing fixes ``center_deg``, so the
+    stage angles the scan records afterwards mean what they say.
+    """
+    polar_cal, azimuth_cal = load_calibration(args.calibration)
+    stage = GoniometerStage(polar_cal, azimuth_cal, slew_rate_deg_s=args.slew_rate, settle_s=0.0)
+    if not stage.connect():
+        return 1
+
+    print(
+        "\nHoming. Each axis starts at its servo centre (90 deg).\n"
+        "Enter a servo angle (0-180) to jog to, 'a' to accept the current physical\n"
+        "position as this axis' reference, or 'q' to leave the axis unchanged.\n"
+        "Watch the jig; keep --slew-rate low on the first run.\n"
+    )
+    try:
+        for name in ("polar", "azimuth"):
+            cal = stage.polar if name == "polar" else stage.azimuth
+            reference_deg, description = HOME_REFERENCE[name]
+            servo = 90.0
+            stage.jog_servo(name, servo)
+            print(f"\n{name}: jog until the stage is at {reference_deg:+.1f} deg — {description}")
+
+            while True:
+                raw = input(f"  {name} servo [{servo:.1f}]> ").strip().lower()
+                if raw in ("q", "quit"):
+                    break
+                if raw in ("a", "accept"):
+                    updated = cal.recentered(servo, reference_deg)
+                    if name == "polar":
+                        stage.polar = updated
+                    else:
+                        stage.azimuth = updated
+                    print(
+                        f"  {name} centre set to {updated.center_deg:+.2f} deg; "
+                        f"travel [{updated.min_deg:+.1f}, {updated.max_deg:+.1f}] maps to servo "
+                        f"[{updated.servo_deg(updated.min_deg):.1f}, "
+                        f"{updated.servo_deg(updated.max_deg):.1f}]"
+                    )
+                    break
+                try:
+                    servo = max(0.0, min(180.0, float(raw)))
+                except ValueError:
+                    print("  enter a servo angle 0-180, 'a' to accept, or 'q' to skip")
+                    continue
+                stage.jog_servo(name, servo)
+
+        save_calibration(stage.polar, stage.azimuth, args.calibration)
+        print(f"\nSaved to {args.calibration}")
+    except KeyboardInterrupt:
+        print("\nHoming aborted — calibration not saved")
+        return 1
+    finally:
+        stage.park()
+    return 0
+
+
+def measure_point(
+    rig: SphereRig,
+    writer: RigCsvWriter,
+    *,
+    color: Color | None,
+    led_label: str,
+    polar_deg: float,
+    azimuth_deg: float,
+    samples: int,
+    start: float,
+    mode: str,
+    target_current_a: float | None,
+) -> None:
+    """Take ``samples`` readings at one stage position and write them all."""
+    for i in range(samples):
+        try:
+            reading = rig.sample(color)
+        except (OSError, TimeoutError) as e:
+            print(f"[WARN] read error at theta={polar_deg:+.1f} phi={azimuth_deg:.1f}: {e}",
+                  file=sys.stderr)
+            continue
+        writer.write(
+            reading,
+            elapsed_s=time.monotonic() - start,
+            mode=mode,
+            led=led_label,
+            sample_index=i,
+            polar_deg=polar_deg,
+            azimuth_deg=azimuth_deg,
+            target_current_a=target_current_a,
+        )
+
+
+def run_scan(args) -> int:
+    try:
+        import smbus2
+    except ImportError:
+        print("[FAIL] smbus2 not installed — run: pip install smbus2", file=sys.stderr)
+        return 1
+
+    if args.csv is None:
+        print("[FAIL] --csv is required for a real scan", file=sys.stderr)
+        return 1
+
+    polar_cal, azimuth_cal = load_calibration(args.calibration)
+    stage = GoniometerStage(
+        polar_cal, azimuth_cal, slew_rate_deg_s=args.slew_rate, settle_s=args.settle
+    )
+    if not stage.connect():
+        return 1
+
+    bus = smbus2.SMBus(args.bus)
+    try:
+        rig = SphereRig(
+            bus=bus,
+            i2c_dev=args.i2c_dev,
+            use_ldac=not args.no_ldac,
+            use_pdro=not args.no_pdro,
+            use_external=not args.no_external,
+        )
+    except Exception as e:
+        print(f"[FAIL] Could not open the rig: {e}", file=sys.stderr)
+        stage.park()
+        bus.close()
+        return 1
+
+    mode = "current" if args.target_current is not None else "open"
+    writer = RigCsvWriter(args.csv)
+    start = time.monotonic()
+
+    try:
+        for led_name in args.leds:
+            color = Color(led_name)
+            print(f"\n=== {led_name} ({LED_WAVELENGTH_NM.get(color, float('nan')):.0f} nm) ===")
+
+            rig.led.all_off()
+            rig.led.set_code(color, args.code)
+            if args.warmup > 0:
+                print(f"Warming up {args.warmup:.0f} s...")
+                time.sleep(args.warmup)
+            if args.target_current is not None:
+                rig.led.hold_current(args.target_current, color=color)
+
+            # Drift-check reference: the polar angle nearest normal incidence on
+            # the first arm. Deliberately not the first point measured, which is
+            # the grazing edge of the sweep where there is least signal and a
+            # drift ratio would be dominated by noise.
+            reference_position = (
+                min(args.polar, key=abs),
+                args.azimuth[0],
+            )
+
+            for azimuth_deg in args.azimuth:
+                if not args.no_dark:
+                    # Dark frame for this arm: same optics, same detector, LEDs off.
+                    stage.move_to(args.polar[0], azimuth_deg)
+                    rig.led.all_off()  # also disengages the current loop
+                    time.sleep(args.settle)
+                    measure_point(
+                        rig, writer,
+                        color=None, led_label=DARK_LABEL,
+                        polar_deg=args.polar[0], azimuth_deg=azimuth_deg,
+                        samples=args.samples, start=start, mode=mode, target_current_a=None,
+                    )
+                    rig.led.set_code(color, args.code)
+                    if args.target_current is not None:
+                        rig.led.hold_current(args.target_current, color=color)
+                    time.sleep(args.settle)
+
+                for polar_deg in args.polar:
+                    stage.move_to(polar_deg, azimuth_deg)
+                    measure_point(
+                        rig, writer,
+                        color=color, led_label=led_name,
+                        polar_deg=polar_deg, azimuth_deg=azimuth_deg,
+                        samples=args.samples, start=start, mode=mode,
+                        target_current_a=args.target_current,
+                    )
+                    print(
+                        f"  theta={polar_deg:+7.2f} phi={azimuth_deg:6.2f}  "
+                        f"({writer.rows} rows, {(time.monotonic() - start) / 60.0:5.1f} min)"
+                    )
+
+            if not args.no_repeat:
+                # Return to the reference angle: any change against the same
+                # point measured at the start is source drift over the scan,
+                # not angular response.
+                print(
+                    f"  repeating theta={reference_position[0]:+g} "
+                    f"phi={reference_position[1]:g} for the drift check..."
+                )
+                stage.move_to(*reference_position)
+                measure_point(
+                    rig, writer,
+                    color=color, led_label=f"{led_name}{REPEAT_SUFFIX}",
+                    polar_deg=reference_position[0], azimuth_deg=reference_position[1],
+                    samples=args.samples, start=start, mode=mode,
+                    target_current_a=args.target_current,
+                )
+
+    except KeyboardInterrupt:
+        print("\nScan interrupted — data written so far is intact")
+    finally:
+        rig.close()
+        stage.park()
+        writer.close()
+        bus.close()
+        print(
+            f"\nDone — {writer.rows} rows to {args.csv} "
+            f"in {(time.monotonic() - start) / 60.0:.1f} minutes"
+        )
+
+    return 0
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    args = build_parser().parse_args()
+
+    if args.home:
+        return run_home(args)
+
+    describe(args)
+    if args.dry_run:
+        return 0
+    return run_scan(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

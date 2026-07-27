@@ -23,6 +23,7 @@ from drivers.ads124s08_driver import (
     ads124s08Driver,
 )
 from drivers.dac5311_driver import dac5311Driver
+from drivers.gpio_hold_driver import GpioHold
 from drivers.integrator_driver import IntegratorDriver
 from drivers.mcp23017 import DEFAULT_ADDR, DEFAULT_BUS, MCP23017
 
@@ -105,6 +106,17 @@ DEFAULT_PINOUTS = {
     ),
 }
 
+# CS lines of the backup ADS1220 photodiode readout boards (see
+# drivers/ads1220_driver.py), which share this SPI bus's MOSI/MISO/SCLK but
+# are otherwise untouched by this driver. The bus is configured with
+# dtoverlay=spi0-0cs (no native hardware CS), so every device on it,
+# including these, depends entirely on its CS being actively held high to
+# stay deselected — left floating, bus noise can pull a CS low and cause
+# the backup board to drive MISO at the same time as the PDRO, corrupting
+# PDRO reads. Holding them high here is a software safety net; the durable
+# fix is a pull-up resistor at each backup board's CS pin.
+DEFAULT_BACKUP_CS_OFFSETS: tuple[int, ...] = (4, 17)
+
 _INPUT_MUX = {
     Input.VGND: Mux.VGND,
     Input.TIA: Mux.TIA,
@@ -147,6 +159,7 @@ class UVICPDRO:
         io_address: int = DEFAULT_ADDR,
         io_bus: int = DEFAULT_BUS,
         pinouts: dict[Readout, ReadoutPinout] | None = None,
+        backup_cs_offsets: Iterable[int] | None = None,
     ) -> None:
         requested_readouts = tuple(Readout) if readouts is None else readouts
         selected = tuple(Readout(readout) for readout in requested_readouts)
@@ -162,12 +175,24 @@ class UVICPDRO:
         if missing:
             raise ValueError(f"missing pinout for: {', '.join(missing)}")
 
+        configured_backup_cs = (
+            DEFAULT_BACKUP_CS_OFFSETS
+            if backup_cs_offsets is None
+            else tuple(backup_cs_offsets)
+        )
+
         self._hardware: dict[Readout, _ReadoutHardware] = {}
         self._io: MCP23017 | None = None
         self._integrator: IntegratorDriver | None = None
+        self._backup_cs: list[GpioHold] = []
         self._closed = False
 
         try:
+            # Hold any co-located backup boards' CS lines high before any SPI
+            # activity on the shared bus, so they can't contend on MISO.
+            for offset in configured_backup_cs:
+                self._backup_cs.append(GpioHold(gpiochip, offset))
+
             # IntegratorDriver releases and verifies the shared ADC enable line.
             # It must be initialized before either ADC issues an SPI command.
             self._io = MCP23017(address=io_address, bus=io_bus)
@@ -381,6 +406,13 @@ class UVICPDRO:
                 logger.exception("failed to close PDRO I/O expander")
             self._io = None
         self._integrator = None
+
+        for backup_cs in self._backup_cs:
+            try:
+                backup_cs.close()
+            except Exception:
+                logger.exception("failed to release backup-board CS hold")
+        self._backup_cs.clear()
 
     def close(self) -> None:
         """Return the PDRO to a safe state and release all device handles."""

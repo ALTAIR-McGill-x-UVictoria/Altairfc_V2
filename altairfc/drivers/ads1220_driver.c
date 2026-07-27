@@ -99,7 +99,7 @@ Ads1220 *ads1220_open(const char *spi_dev, const char *gpiochip_name, unsigned i
         return NULL;
     }
 
-    uint8_t mode = SPI_MODE_1;   /* ADS1220: CPOL=0, CPHA=1 */
+    uint8_t mode = SPI_MODE_1 | SPI_NO_CS;   /* ADS1220: CPOL=0, CPHA=1 */
     uint8_t bits = 8;
     uint32_t speed = 1000000;
     if (ioctl(dev->fd_spi, SPI_IOC_WR_MODE, &mode) < 0 ||
