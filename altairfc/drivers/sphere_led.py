@@ -110,8 +110,6 @@ class SphereLedSource:
         if use_ldac:
             self._open_ldac(pi)
 
-        # One Multi-Write forces Vref=Vdd and gain=1x on every channel so VOUT
-        # tracks Vdd; every later update is a cheaper Fast Write.
         if not self._dac.set_vdd_reference(self._codes):
             raise OSError("MCP4728: initial Multi-Write failed — check I2C bus and address 0x60")
 
@@ -138,8 +136,21 @@ class SphereLedSource:
         return self._codes[self.channel]
 
     def _flush(self) -> None:
-        if not self._dac.set_codes(self._codes):
-            raise OSError("MCP4728: Fast Write failed")
+        """Push self._codes to the DAC via Multi-Write, not Fast Write.
+
+        Fast Write (MCP4728Driver.set_codes / mcp4728_fast_write) failed with
+        an I2C-level ioctl error the first time it was ever exercised against
+        real hardware — no existing script in this repo used it before;
+        test_LED_system.py and friends all bypass drivers/mcp4728_driver.py
+        and write via raw smbus2 Multi-Write instead. The frame this driver
+        sends matches the MCP4728 datasheet's Fast Write layout on inspection,
+        so the fault is unconfirmed (bus/wiring vs. a subtler protocol issue).
+        Multi-Write is confirmed working and costs 3 extra I2C transactions
+        per update, irrelevant at this loop's ~1 Hz / per-sample rate, so it
+        is used unconditionally rather than chasing the root cause further.
+        """
+        if not self._dac.set_vdd_reference(self._codes):
+            raise OSError("MCP4728: Multi-Write failed")
 
     def set_code(self, code: int) -> None:
         """Set the combined LED drive to a DAC code (0-4095)."""
