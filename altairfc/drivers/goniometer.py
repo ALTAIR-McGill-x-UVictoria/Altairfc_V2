@@ -97,6 +97,21 @@ class AxisCalibration:
             deflection = -deflection
         return self.center_deg + deflection / self.gear_ratio
 
+    def reachable_range(self) -> tuple[float, float]:
+        """Stage-angle interval actually reachable: [min_deg, max_deg] intersected
+        with what the servo's 0-180 deg travel can reach given this calibration.
+
+        A nonzero offset between the configured centre and the true mechanical
+        centre (the usual result of homing) can make part of the configured
+        [min_deg, max_deg] unreachable — this never raises, unlike
+        :meth:`servo_deg`, so it is safe to use for reporting that to an
+        operator rather than crashing.
+        """
+        edge_a = self.stage_deg(0.0)
+        edge_b = self.stage_deg(180.0)
+        lo, hi = (edge_a, edge_b) if edge_a <= edge_b else (edge_b, edge_a)
+        return (max(self.min_deg, lo), min(self.max_deg, hi))
+
     def recentered(self, servo_deg: float, stage_deg: float) -> AxisCalibration:
         """Return a copy whose centre is set by an observed physical position.
 

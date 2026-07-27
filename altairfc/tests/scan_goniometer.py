@@ -260,11 +260,19 @@ def run_home(args) -> int:
                         stage.polar = updated
                     else:
                         stage.azimuth = updated
+                    lo, hi = updated.reachable_range()
+                    clipped = lo > updated.min_deg + 1e-9 or hi < updated.max_deg - 1e-9
                     print(
                         f"  {name} centre set to {updated.center_deg:+.2f} deg; "
-                        f"travel [{updated.min_deg:+.1f}, {updated.max_deg:+.1f}] maps to servo "
-                        f"[{updated.servo_deg(updated.min_deg):.1f}, "
-                        f"{updated.servo_deg(updated.max_deg):.1f}]"
+                        f"reachable travel [{lo:+.1f}, {hi:+.1f}] deg"
+                        + (
+                            f"  (clipped from configured [{updated.min_deg:+.1f}, "
+                            f"{updated.max_deg:+.1f}] by servo 0-180 limits — a mechanical "
+                            "offset was found during homing; use a --polar/--azimuth range "
+                            "inside the reachable interval above)"
+                            if clipped
+                            else ""
+                        )
                     )
                     break
                 try:
@@ -273,13 +281,18 @@ def run_home(args) -> int:
                     print("  enter a servo angle 0-180, 'a' to accept, or 'q' to skip")
                     continue
                 stage.jog_servo(name, servo)
-
-        save_calibration(stage.polar, stage.azimuth, args.calibration)
-        print(f"\nSaved to {args.calibration}")
     except KeyboardInterrupt:
-        print("\nHoming aborted — calibration not saved")
+        print("\nHoming interrupted — saving whatever axes were accepted before this point")
+        return 1
+    except Exception:
+        logger.exception("Unexpected error during homing — saving whatever was accepted so far")
         return 1
     finally:
+        # Whatever got accepted (via 'a') is already on stage.polar/stage.azimuth
+        # regardless of how this block exits, so save unconditionally: losing a
+        # jig homing session to an unrelated bug is expensive to redo.
+        save_calibration(stage.polar, stage.azimuth, args.calibration)
+        print(f"Saved to {args.calibration}")
         stage.park()
     return 0
 
