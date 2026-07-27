@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -111,6 +112,16 @@ def build_parser() -> argparse.ArgumentParser:
         "angular response. See the module docstring: this cannot resolve per-wavelength "
         "response, since the sphere's LEDs have no independent colour control."
     )
+    # argparse's built-in check for "does this token look like a negative
+    # number rather than an unknown option" only matches plain integers/
+    # decimals (e.g. -90), not our 'start:stop:step' range syntax (e.g.
+    # -90:90:5). Without this, `--polar -90:90:5` (the natural, space-
+    # separated form used everywhere in this repo's docs) is misparsed as an
+    # unrecognized option and argparse fails with "expected one argument" —
+    # only `--polar=-90:90:5` would work. Broadening the matcher to any
+    # '-<digit>...' token fixes the space-separated form; no option name here
+    # starts with a digit, so nothing else is affected.
+    parser._negative_number_matcher = re.compile(r"^-\d.*$")
     parser.add_argument(
         "--polar", type=parse_range, default="-90:90:15",
         help="Polar theta range from the port normal, 'start:stop:step' in degrees",
