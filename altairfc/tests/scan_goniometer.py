@@ -61,7 +61,14 @@ from drivers.goniometer import (  # noqa: E402
     load_calibration,
     save_calibration,
 )
+from drivers.sphere_led import (  # noqa: E402
+    HIGH_POWER_CHANNEL,
+    LOW_POWER_CHANNEL,
+    MAX_SAFE_CODE,
+)
 from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
+
+_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL, "low": LOW_POWER_CHANNEL}
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +119,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--azimuth", type=parse_range, default="0:180:45",
         help="Azimuth phi range about the normal, 'start:stop:step' in degrees",
     )
-    parser.add_argument("--code", type=int, default=2047, help="12-bit DAC code (0-4095)")
+    parser.add_argument(
+        "--channel", choices=sorted(_CHANNEL_CHOICES), default="high",
+        help="Which drive channel to scan with: high power (MCP4728 A) or low power (MCP4728 B)",
+    )
+    parser.add_argument(
+        "--code", type=int, default=700,
+        help=f"DAC code (0-{MAX_SAFE_CODE}; hard-clamped by the driver regardless of "
+        "what's passed here)",
+    )
     parser.add_argument(
         "--target-current", type=float, default=None,
         help="Hold this drive current (amps) with the PI loop during the scan "
@@ -174,7 +189,8 @@ def describe(args) -> tuple[int, int]:
         n_points += 1
 
     print(
-        "Source    : combined R+G+B (no per-colour control — see module docstring)"
+        f"Source    : combined R+G+B, {args.channel}-power channel, "
+        f"code {args.code} (hard-capped at {MAX_SAFE_CODE}) — no per-colour control"
     )
     print(f"Azimuth   : {len(args.azimuth)} x {_fmt_list(args.azimuth)} deg")
     print(f"Polar     : {len(args.polar)} x {_fmt_list(args.polar)} deg")
@@ -322,6 +338,7 @@ def run_scan(args) -> int:
     try:
         rig = SphereRig(
             bus=bus,
+            channel=_CHANNEL_CHOICES[args.channel],
             i2c_dev=args.i2c_dev,
             use_ldac=not args.no_ldac,
             use_pdro=not args.no_pdro,
@@ -338,7 +355,8 @@ def run_scan(args) -> int:
     start = time.monotonic()
 
     try:
-        print("\n=== combined R+G+B source (no per-colour isolation available) ===")
+        print(f"\n=== combined R+G+B source, {args.channel}-power channel "
+              "(no per-colour isolation available) ===")
 
         rig.led.all_off()
         rig.led.set_code(args.code)
@@ -423,6 +441,10 @@ def main() -> int:
 
     if args.home:
         return run_home(args)
+
+    if not 0 <= args.code <= MAX_SAFE_CODE:
+        print(f"[FAIL] --code must be 0-{MAX_SAFE_CODE}, got {args.code}", file=sys.stderr)
+        return 1
 
     describe(args)
     if args.dry_run:

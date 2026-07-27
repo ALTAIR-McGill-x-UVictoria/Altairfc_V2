@@ -1,10 +1,15 @@
 """Phase 1: quantify the sphere LEDs' brightness and temperature stability.
 
 The sphere's R/G/B LEDs have no per-colour control — they are always driven
-together as one combined unit, off one DAC channel, with one current sense and
-one thermistor for the whole board (see drivers/sphere_led.py). This soaks that
-combined source at a fixed operating point for a long run and logs, once a
-second, everything needed to quantify its drift:
+together as one combined optical output, with one current sense and one
+thermistor for the whole board (see drivers/sphere_led.py). What DOES exist is
+two independently addressable drive channels for that combined output: a
+high-power channel (MCP4728 A) and a low-power channel (MCP4728 B) — select
+with --channel. DAC codes on both are hard-limited to 1400 by the driver
+itself, unconditionally, regardless of what --code requests.
+
+This soaks the source at a fixed operating point for a long run and logs, once
+a second, everything needed to quantify its drift:
 
     dac_code, led_current_a       what the driver is actually delivering
     bridge_temperature_c          the LED board's temperature
@@ -14,11 +19,11 @@ second, everything needed to quantify its drift:
 Run the same operating point twice, once in each mode, to see what the current
 loop buys you:
 
-    python tests/soak_sphere_led.py --code 2047 --mode open \\
-        --duration 3600 --csv soak_open.csv
+    python tests/soak_sphere_led.py --code 700 --mode open \\
+        --duration 3600 --csv lab_data/soak_open.csv
 
-    python tests/soak_sphere_led.py --code 2047 --mode current \\
-        --target-current 0.35 --duration 3600 --csv soak_pi.csv
+    python tests/soak_sphere_led.py --code 700 --mode current \\
+        --target-current 0.35 --duration 3600 --csv lab_data/soak_pi.csv
 
 The warm-up transient in the first run gives the dI/dT that
 Experiment_Design/01_source_calibration.md requires under "Source stability",
@@ -48,9 +53,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from drivers.sphere_led import (  # noqa: E402
+    HIGH_POWER_CHANNEL,
+    LOW_POWER_CHANNEL,
+    MAX_SAFE_CODE,
+)
 from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL, "low": LOW_POWER_CHANNEL}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,7 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
         "and log its stability."
     )
     parser.add_argument(
-        "--code", type=int, default=2047, help="Starting 12-bit DAC code (0-4095)"
+        "--channel", choices=sorted(_CHANNEL_CHOICES), default="high",
+        help="Which drive channel to soak: high power (MCP4728 A) or low power (MCP4728 B)",
+    )
+    parser.add_argument(
+        "--code", type=int, default=700,
+        help=f"Starting DAC code (0-{MAX_SAFE_CODE}; hard-clamped by the driver "
+        "regardless of what's passed here)",
     )
     parser.add_argument(
         "--mode",
@@ -177,8 +195,8 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args()
 
-    if not 0 <= args.code <= 4095:
-        print(f"[FAIL] --code must be 0-4095, got {args.code}", file=sys.stderr)
+    if not 0 <= args.code <= MAX_SAFE_CODE:
+        print(f"[FAIL] --code must be 0-{MAX_SAFE_CODE}, got {args.code}", file=sys.stderr)
         return 1
 
     try:
@@ -192,6 +210,7 @@ def main() -> int:
     try:
         rig = SphereRig(
             bus=bus,
+            channel=_CHANNEL_CHOICES[args.channel],
             i2c_dev=args.i2c_dev,
             use_ldac=not args.no_ldac,
             use_pdro=not args.no_pdro,

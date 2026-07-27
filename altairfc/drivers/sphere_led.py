@@ -1,16 +1,22 @@
-"""Integrating-sphere LED source: combined-drive control plus a current-hold loop.
+"""Integrating-sphere LED source: two-channel drive control plus a current-hold loop.
 
-The sphere's R/G/B LEDs are driven together as ONE unit — there is no per-colour
-control. A single MCP4728 DAC channel (0x60) sets the drive level for all three
-combined; there is no independent DAC channel, switch, or driver per colour.
+The sphere's R/G/B LEDs are driven together as ONE combined optical output —
+there is no per-colour control, no independent DAC channel/switch/driver per
+colour. What DOES exist is two independently addressable drive channels for
+that combined output, on two MCP4728 DAC channels (0x60):
+
+    HIGH_POWER_CHANNEL = 0  (MCP4728 channel A)
+    LOW_POWER_CHANNEL  = 1  (MCP4728 channel B)
+
 Feedback comes from an ADS1115 (0x4A) on the same bus: LED drive current across
 a 2.2 ohm sense resistor on AIN0, and an NTC Wheatstone bridge on AIN2-AIN3 —
-both are properties of the board as a whole, not of any one colour.
+both are properties of the board as a whole, not of any one channel or colour.
 
 Practical consequences worth being explicit about:
 
-  * Brightness/current can be commanded and held constant, but the R:G:B mix
-    cannot be adjusted or isolated. "Blue only" is not physically achievable.
+  * Brightness/current can be commanded and held constant per channel, but the
+    R:G:B mix cannot be adjusted or isolated. "Blue only" is not physically
+    achievable on either channel.
   * A goniometric scan with this source measures the angular response of the
     COMBINED spectrum, not a per-wavelength I(theta, phi, lambda) curve. That
     conflicts with Experiment_Design/01_source_calibration.md section 2 step 3,
@@ -19,9 +25,13 @@ Practical consequences worth being explicit about:
     switchable LED drivers) or a spectrally-resolving detector at the
     goniometer stage — neither exists yet. See the project memory
     ``goniometer-measurement-campaign`` for the open decision.
-  * The current-hold loop and the thermistor reading are therefore both
-    meaningful as-is (there is only ever one thing being measured), unlike an
-    earlier version of this module that assumed independent per-colour control.
+  * The current-hold loop and the thermistor reading are board-wide, not
+    per-channel — engaging the loop on one channel while the other is also
+    driven regulates their combined current, same caveat as combining colours.
+
+DAC codes on BOTH channels are hard-limited to MAX_SAFE_CODE by this driver,
+unconditionally, regardless of what a caller requests — see MAX_SAFE_CODE
+below for why.
 
 The loop has no thread of its own. ``update()`` performs one iteration and the
 caller drives it, so the same object serves both the soak script's 1 Hz logging
@@ -30,8 +40,8 @@ loop and the scan script's per-point dwell.
 Usage:
     import smbus2
     bus = smbus2.SMBus(1)
-    src = SphereLedSource(bus=bus)
-    src.set_code(2047)             # open loop
+    src = SphereLedSource(bus=bus)                      # defaults to HIGH_POWER_CHANNEL
+    src.set_code(1400)             # open loop, clamped to MAX_SAFE_CODE regardless
     src.hold_current(0.35)         # engage the PI loop
     while ...:
         state = src.update()
@@ -51,9 +61,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LDAC_PIN = 20  # BCM numbering, physical pin 38
 
-# Which MCP4728 channel drives the sphere's combined LEDs. Confirm against the
-# board wiring; override with the channel argument if it differs.
-DEFAULT_CHANNEL = 0
+# The two drive channels wired on this board. Channels 2/3 (C/D) are not used.
+HIGH_POWER_CHANNEL = 0  # MCP4728 channel A
+LOW_POWER_CHANNEL = 1   # MCP4728 channel B
+VALID_CHANNELS = (HIGH_POWER_CHANNEL, LOW_POWER_CHANNEL)
+
+DEFAULT_CHANNEL = HIGH_POWER_CHANNEL
+
+# Hard ceiling on the DAC code, enforced by this driver on BOTH channels
+# regardless of what a caller requests (--code, hold_current's PI output,
+# anything). This is a safety limit, not a suggestion — do not raise it
+# without confirming what it is actually protecting against.
+MAX_SAFE_CODE = 1400
+assert MAX_SAFE_CODE <= MAX_CODE, "MAX_SAFE_CODE must not exceed the DAC's own 12-bit range"
 
 
 @dataclass
@@ -83,8 +103,11 @@ class SphereLedSource:
         i2c_dev: str = "/dev/i2c-1",
         sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
     ) -> None:
-        if not 0 <= channel < NUM_CHANNELS:
-            raise ValueError(f"channel must be 0-3, got {channel}")
+        if channel not in VALID_CHANNELS:
+            raise ValueError(
+                f"channel must be HIGH_POWER_CHANNEL ({HIGH_POWER_CHANNEL}) or "
+                f"LOW_POWER_CHANNEL ({LOW_POWER_CHANNEL}), got {channel}"
+            )
         self.channel = channel
 
         self._sense_resistor_ohm = sense_resistor_ohm
@@ -153,8 +176,8 @@ class SphereLedSource:
             raise OSError("MCP4728: Multi-Write failed")
 
     def set_code(self, code: int) -> None:
-        """Set the combined LED drive to a DAC code (0-4095)."""
-        self._codes[self.channel] = max(0, min(MAX_CODE, int(code)))
+        """Set this channel's drive to a DAC code, hard-clamped to MAX_SAFE_CODE."""
+        self._codes[self.channel] = max(0, min(MAX_SAFE_CODE, int(code)))
         self._flush()
 
     def all_off(self) -> None:
@@ -229,9 +252,11 @@ class SphereLedSource:
                 delta = self._kp * error + self._ki * self._integral
                 delta = max(-self._max_code_step, min(self._max_code_step, delta))
 
-                new_code = max(0, min(MAX_CODE, int(round(self.code + delta))))
+                new_code = max(0, min(MAX_SAFE_CODE, int(round(self.code + delta))))
                 # Anti-windup: stop integrating once the actuator is railed.
-                if new_code in (0, MAX_CODE) and self.code == new_code:
+                # MAX_SAFE_CODE, not the DAC's full range, is the true ceiling
+                # this loop can reach.
+                if new_code in (0, MAX_SAFE_CODE) and self.code == new_code:
                     self._integral -= error * dt
                 self._codes[self.channel] = new_code
                 self._flush()

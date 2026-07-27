@@ -4,12 +4,12 @@ Status: 2026-07-27. Scripts and drivers referenced here live in this
 directory (`altairfc/tests/`) and `altairfc/drivers/`. Reduction lives in
 the sibling `NRC-calibration/` repo.
 
-## Scope and a hard limitation, up front
+## Scope and two hard constraints, up front
 
 The sphere's R/G/B LEDs have **no per-colour control** — they are always
-driven together as one combined unit off a single MCP4728 DAC channel, with
-one shared current-sense resistor and one shared thermistor for the whole
-board (`drivers/sphere_led.py`). Consequences:
+driven together as one combined optical output, with one shared
+current-sense resistor and one shared thermistor for the whole board
+(`drivers/sphere_led.py`). Consequences:
 
 - Nothing below can isolate a single wavelength. Every "LED on" measurement
   is the combined R+G+B spectrum.
@@ -23,6 +23,14 @@ board (`drivers/sphere_led.py`). Consequences:
 
 Treat every curve this campaign produces as the combined-spectrum response
 and say so explicitly wherever it's used.
+
+There **are** two independently addressable drive channels for that combined
+output — a high-power channel (MCP4728 A) and a low-power channel (MCP4728
+B), selected with `--channel {high,low}` on both scripts below (default
+`high`). DAC codes on **both** channels are hard-limited to `1400` (of 4095)
+inside `drivers/sphere_led.py` itself — enforced unconditionally, regardless
+of what `--code` requests, so this is a safety floor you can't accidentally
+override from the CLI.
 
 ## Prerequisites (once, on the Pi)
 
@@ -67,22 +75,26 @@ Confirms DAC, LDAC, current sense, thermistor, both sphere photodiodes, and
 the external ADS1220 all read plausibly in one place.
 
 ```bash
-python tests/soak_sphere_led.py --code 2047 --mode open \
+python tests/soak_sphere_led.py --code 700 --mode open \
     --duration 300 --csv lab_data/soak_smoke.csv
 ```
 
 Add `--no-external` if the goniometer detector isn't wired yet — the sphere
 photodiodes alone are still useful (they're inside the sphere; ambient can't
-reach them).
+reach them). Add `--channel low` to smoke-test the low-power channel instead
+of the default high-power one.
 
 ## Step 3 — Phase 1: LED stability soak (no jig needed — can run in parallel with jig assembly)
 
+Run this once per channel you intend to use for the scan (Step 3 and Step 7
+should use the same `--channel`).
+
 ```bash
-python tests/soak_sphere_led.py --code 2047 --mode open \
+python tests/soak_sphere_led.py --code 700 --mode open \
     --duration 3600 --csv lab_data/soak_open.csv
 
 # use the settled current printed by the run above as --target-current
-python tests/soak_sphere_led.py --code 2047 --mode current \
+python tests/soak_sphere_led.py --code 700 --mode current \
     --target-current <value> --duration 3600 --csv lab_data/soak_pi.csv
 ```
 

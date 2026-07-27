@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from drivers.sphere_led import SphereLedSource  # noqa: E402
+from drivers.sphere_led import DEFAULT_CHANNEL, SphereLedSource  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class SphereRig:
         self,
         *,
         bus,
-        channel: int = 0,
+        channel: int = DEFAULT_CHANNEL,
         pi=None,
         use_ldac: bool = True,
         i2c_dev: str = "/dev/i2c-1",
