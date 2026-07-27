@@ -21,7 +21,8 @@ altairfc/logs/
 altairfc/*.csv
 altairfc/*.log
 
-
+# Compiled files
+*.so
 
 # logs
 ./altairfc/logs/*
