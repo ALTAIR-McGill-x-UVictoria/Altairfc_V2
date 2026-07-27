@@ -2,40 +2,47 @@
 
 Sweeps the sphere through one hemisphere of emission directions on the
 two-axis servo jig while a fixed photodiode measures the port's brightness,
-producing the raw data for I(theta, phi, lambda).  Requirements come from
+producing the raw data for I(theta, phi). Requirements come from
 ALTAIR-analysis/Experiment_Design/01_source_calibration.md; the ones that
 shape this script:
 
-  * Each LED is scanned individually.  Angular response must not be assumed
-    shared between wavelengths, so --leds drives one colour at a time rather
-    than the all-on condition used for the spectral calibration.
-  * Both angles are scanned.  Polar theta from the port normal and azimuth phi
-    about it.  Scanning several azimuths is a symmetry *check*, not padding —
+  * Both angles are scanned. Polar theta from the port normal and azimuth phi
+    about it. Scanning several azimuths is a symmetry *check*, not padding —
     if it fails, the deliverable becomes a 2D map and the flight pipeline needs
     gondola roll at each flash.
   * Every point carries an error bar, so --samples repeats per angle and each
     sample is its own CSV row.
 
+IMPORTANT LIMITATION, not fixable in software: the sphere's R/G/B LEDs have no
+per-colour control (see drivers/sphere_led.py) — they are always driven
+together as one combined unit. Experiment_Design/01 section 2 step 3 requires
+angular response measured PER WAVELENGTH, independently. This scan cannot do
+that; it measures I(theta, phi) of the combined spectrum only. Getting a true
+per-wavelength curve needs either independently switchable LED drivers (a
+board change) or a spectrally-resolving detector at the goniometer stage,
+neither of which exists yet. Treat any curve this script produces as the
+combined-spectrum response, not a per-wavelength one, until that changes.
+
 Three things the requirements imply but do not spell out, all done here:
 
   * A dark frame opens every azimuth arm (LEDs off, same sample count,
-    led="dark").  At a 2 mm aperture and 50 cm this is not optional.
+    led="dark"). At a 2 mm aperture and 50 cm this is not optional.
   * The first angle is repeated at the end of the scan, bounding source drift
     across the run — the within-scan version of the doc's before/after check.
   * Rows are flushed as they are measured, so an interrupted scan keeps its data.
 
 Usage:
-    python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth 0:180:90 --leds blue
+    python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth 0:180:90
     python tests/scan_goniometer.py --home
     python tests/scan_goniometer.py --polar -90:90:5 --azimuth 0:180:45 \\
-        --leds blue red --settle 2.0 --samples 20 --csv scan_2026-07-27.csv
+        --settle 2.0 --samples 20 --csv scan_2026-07-27.csv
 
-Budget the run.  ads1220_read_single_shot() is not DRDY-driven: it sleeps a
+Budget the run. ads1220_read_single_shot() is not DRDY-driven: it sleeps a
 fixed ~75 ms per conversion at 20 SPS (ads1220_driver.c), so 20 samples costs
-~1.5 s of external-photodiode reads alone before settle time.  --dry-run
+~1.5 s of external-photodiode reads alone before settle time. --dry-run
 prints the resulting estimate; check it before starting.
 
-Run from altairfc/.  Requires: sudo pigpiod
+Run from altairfc/. Requires: sudo pigpiod
 """
 
 from __future__ import annotations
@@ -54,13 +61,11 @@ from drivers.goniometer import (  # noqa: E402
     load_calibration,
     save_calibration,
 )
-from drivers.sphere_led import Color  # noqa: E402
-from tests.sphere_rig import LED_WAVELENGTH_NM, RigCsvWriter, SphereRig  # noqa: E402
+from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-DARK_LABEL = "dark"
-REPEAT_SUFFIX = "_repeat"  # must match reduce_goniometer.py in the NRC-calibration repo
+REPEAT_LABEL = f"{LED_LIT_LABEL}_repeat"  # must match reduce_goniometer.py in NRC-calibration
 EXTERNAL_READ_S = 0.075  # fixed sleep inside ads1220_read_single_shot()
 
 
@@ -95,7 +100,9 @@ def parse_range(spec: str) -> list[float]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Far-field goniometric scan of the sphere exit port."
+        description="Far-field goniometric scan of the sphere exit port's combined-spectrum "
+        "angular response. See the module docstring: this cannot resolve per-wavelength "
+        "response, since the sphere's LEDs have no independent colour control."
     )
     parser.add_argument(
         "--polar", type=parse_range, default="-90:90:15",
@@ -105,11 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--azimuth", type=parse_range, default="0:180:45",
         help="Azimuth phi range about the normal, 'start:stop:step' in degrees",
     )
-    parser.add_argument(
-        "--leds", nargs="+", default=["blue"], choices=[c.value for c in Color],
-        help="LEDs to scan, one at a time, in this order",
-    )
-    parser.add_argument("--code", type=int, default=2047, help="12-bit DAC code per LED (0-4095)")
+    parser.add_argument("--code", type=int, default=2047, help="12-bit DAC code (0-4095)")
     parser.add_argument(
         "--target-current", type=float, default=None,
         help="Hold this drive current (amps) with the PI loop during the scan "
@@ -119,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--settle", type=float, default=2.0, help="Dwell after each move, seconds")
     parser.add_argument(
         "--warmup", type=float, default=60.0,
-        help="Seconds to hold each LED lit before its first measurement",
+        help="Seconds to hold the LEDs lit before the first measurement",
     )
     parser.add_argument("--slew-rate", type=float, default=30.0, help="Stage slew rate, deg/s")
     parser.add_argument("--csv", type=Path, default=None, help="Output CSV path")
@@ -160,18 +163,19 @@ def estimate_seconds(args, n_points: int, n_dark: int) -> float:
 
     dwell = args.samples * per_sample
     moves = (n_points + n_dark) * args.settle
-    warmup = args.warmup * len(args.leds)
-    return moves + (n_points + n_dark) * dwell + warmup
+    return moves + (n_points + n_dark) * dwell + args.warmup
 
 
 def describe(args) -> tuple[int, int]:
     """Print the planned sequence; return (measurement points, dark frames)."""
-    n_points = len(args.leds) * len(args.azimuth) * len(args.polar)
-    n_dark = 0 if args.no_dark else len(args.leds) * len(args.azimuth)
+    n_points = len(args.azimuth) * len(args.polar)
+    n_dark = 0 if args.no_dark else len(args.azimuth)
     if not args.no_repeat:
-        n_points += len(args.leds)
+        n_points += 1
 
-    print(f"LEDs      : {', '.join(args.leds)}")
+    print(
+        "Source    : combined R+G+B (no per-colour control — see module docstring)"
+    )
     print(f"Azimuth   : {len(args.azimuth)} x {_fmt_list(args.azimuth)} deg")
     print(f"Polar     : {len(args.polar)} x {_fmt_list(args.polar)} deg")
     print(f"Samples   : {args.samples} per angle")
@@ -184,6 +188,11 @@ def describe(args) -> tuple[int, int]:
             "       and without it the I(theta) collapse cannot be justified\n"
             "       (Experiment_Design/01_source_calibration.md, section 2 step 4)."
         )
+    print(
+        "\n[NOTE] This measures the ANGULAR RESPONSE OF THE COMBINED RGB SPECTRUM.\n"
+        "       Experiment_Design/01 section 2 step 3 requires per-wavelength curves;\n"
+        "       the current LED board cannot isolate a single colour to provide that."
+    )
     return n_points, n_dark
 
 
@@ -263,7 +272,6 @@ def measure_point(
     rig: SphereRig,
     writer: RigCsvWriter,
     *,
-    color: Color | None,
     led_label: str,
     polar_deg: float,
     azimuth_deg: float,
@@ -275,7 +283,7 @@ def measure_point(
     """Take ``samples`` readings at one stage position and write them all."""
     for i in range(samples):
         try:
-            reading = rig.sample(color)
+            reading = rig.sample()
         except (OSError, TimeoutError) as e:
             print(f"[WARN] read error at theta={polar_deg:+.1f} phi={azimuth_deg:.1f}: {e}",
                   file=sys.stderr)
@@ -330,74 +338,69 @@ def run_scan(args) -> int:
     start = time.monotonic()
 
     try:
-        for led_name in args.leds:
-            color = Color(led_name)
-            print(f"\n=== {led_name} ({LED_WAVELENGTH_NM.get(color, float('nan')):.0f} nm) ===")
+        print("\n=== combined R+G+B source (no per-colour isolation available) ===")
 
-            rig.led.all_off()
-            rig.led.set_code(color, args.code)
-            if args.warmup > 0:
-                print(f"Warming up {args.warmup:.0f} s...")
-                time.sleep(args.warmup)
-            if args.target_current is not None:
-                rig.led.hold_current(args.target_current, color=color)
+        rig.led.all_off()
+        rig.led.set_code(args.code)
+        if args.warmup > 0:
+            print(f"Warming up {args.warmup:.0f} s...")
+            time.sleep(args.warmup)
+        if args.target_current is not None:
+            rig.led.hold_current(args.target_current)
 
-            # Drift-check reference: the polar angle nearest normal incidence on
-            # the first arm. Deliberately not the first point measured, which is
-            # the grazing edge of the sweep where there is least signal and a
-            # drift ratio would be dominated by noise.
-            reference_position = (
-                min(args.polar, key=abs),
-                args.azimuth[0],
-            )
+        # Drift-check reference: the polar angle nearest normal incidence on the
+        # first arm. Deliberately not the first point measured, which is the
+        # grazing edge of the sweep where there is least signal and a drift
+        # ratio would be dominated by noise.
+        reference_position = (min(args.polar, key=abs), args.azimuth[0])
 
-            for azimuth_deg in args.azimuth:
-                if not args.no_dark:
-                    # Dark frame for this arm: same optics, same detector, LEDs off.
-                    stage.move_to(args.polar[0], azimuth_deg)
-                    rig.led.all_off()  # also disengages the current loop
-                    time.sleep(args.settle)
-                    measure_point(
-                        rig, writer,
-                        color=None, led_label=DARK_LABEL,
-                        polar_deg=args.polar[0], azimuth_deg=azimuth_deg,
-                        samples=args.samples, start=start, mode=mode, target_current_a=None,
-                    )
-                    rig.led.set_code(color, args.code)
-                    if args.target_current is not None:
-                        rig.led.hold_current(args.target_current, color=color)
-                    time.sleep(args.settle)
-
-                for polar_deg in args.polar:
-                    stage.move_to(polar_deg, azimuth_deg)
-                    measure_point(
-                        rig, writer,
-                        color=color, led_label=led_name,
-                        polar_deg=polar_deg, azimuth_deg=azimuth_deg,
-                        samples=args.samples, start=start, mode=mode,
-                        target_current_a=args.target_current,
-                    )
-                    print(
-                        f"  theta={polar_deg:+7.2f} phi={azimuth_deg:6.2f}  "
-                        f"({writer.rows} rows, {(time.monotonic() - start) / 60.0:5.1f} min)"
-                    )
-
-            if not args.no_repeat:
-                # Return to the reference angle: any change against the same
-                # point measured at the start is source drift over the scan,
-                # not angular response.
-                print(
-                    f"  repeating theta={reference_position[0]:+g} "
-                    f"phi={reference_position[1]:g} for the drift check..."
-                )
-                stage.move_to(*reference_position)
+        for azimuth_deg in args.azimuth:
+            if not args.no_dark:
+                # Dark frame for this arm: same optics, same detector, LEDs off.
+                stage.move_to(args.polar[0], azimuth_deg)
+                rig.led.all_off()  # also disengages the current loop
+                time.sleep(args.settle)
                 measure_point(
                     rig, writer,
-                    color=color, led_label=f"{led_name}{REPEAT_SUFFIX}",
-                    polar_deg=reference_position[0], azimuth_deg=reference_position[1],
+                    led_label=LED_DARK_LABEL,
+                    polar_deg=args.polar[0], azimuth_deg=azimuth_deg,
+                    samples=args.samples, start=start, mode=mode, target_current_a=None,
+                )
+                rig.led.set_code(args.code)
+                if args.target_current is not None:
+                    rig.led.hold_current(args.target_current)
+                time.sleep(args.settle)
+
+            for polar_deg in args.polar:
+                stage.move_to(polar_deg, azimuth_deg)
+                measure_point(
+                    rig, writer,
+                    led_label=LED_LIT_LABEL,
+                    polar_deg=polar_deg, azimuth_deg=azimuth_deg,
                     samples=args.samples, start=start, mode=mode,
                     target_current_a=args.target_current,
                 )
+                print(
+                    f"  theta={polar_deg:+7.2f} phi={azimuth_deg:6.2f}  "
+                    f"({writer.rows} rows, {(time.monotonic() - start) / 60.0:5.1f} min)"
+                )
+
+        if not args.no_repeat:
+            # Return to the reference angle: any change against the same point
+            # measured at the start is source drift over the scan, not angular
+            # response.
+            print(
+                f"  repeating theta={reference_position[0]:+g} "
+                f"phi={reference_position[1]:g} for the drift check..."
+            )
+            stage.move_to(*reference_position)
+            measure_point(
+                rig, writer,
+                led_label=REPEAT_LABEL,
+                polar_deg=reference_position[0], azimuth_deg=reference_position[1],
+                samples=args.samples, start=start, mode=mode,
+                target_current_a=args.target_current,
+            )
 
     except KeyboardInterrupt:
         print("\nScan interrupted — data written so far is intact")

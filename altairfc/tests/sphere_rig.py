@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from drivers.sphere_led import Color, SphereLedSource  # noqa: E402
+from drivers.sphere_led import SphereLedSource  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +59,11 @@ CSV_COLUMNS = [
     "external_pd_v",
 ]
 
-# Nominal peak wavelengths, carried into the CSV so the reducer can label
-# curves per Experiment_Design/01 without a second lookup table.  The sphere
-# runs in NRC-calibration all peak near 453 nm.
-LED_WAVELENGTH_NM = {Color.RED: 625.0, Color.GREEN: 525.0, Color.BLUE: 453.0}
+# The "led" CSV column's two states. There is no per-colour control (see
+# drivers/sphere_led.py) — the sphere's R/G/B LEDs are always driven together,
+# so every lit sample is this combined-spectrum label, never a single colour.
+LED_LIT_LABEL = "rgb"
+LED_DARK_LABEL = "dark"
 
 
 @dataclass
@@ -91,7 +92,7 @@ class SphereRig:
         self,
         *,
         bus,
-        channel_map: dict[Color, int] | None = None,
+        channel: int = 0,
         pi=None,
         use_ldac: bool = True,
         i2c_dev: str = "/dev/i2c-1",
@@ -111,7 +112,7 @@ class SphereRig:
 
         self.led = SphereLedSource(
             bus=bus,
-            channel_map=channel_map,
+            channel=channel,
             pi=pi,
             use_ldac=use_ldac,
             i2c_dev=i2c_dev,
@@ -157,18 +158,18 @@ class SphereRig:
             )
             logger.info("SphereRig: PDRO open on Sergeant + Soldier")
 
-    def sample(self, color: Color | None) -> RigReading:
+    def sample(self) -> RigReading:
         """Take one reading from every instrument.
 
-        ``color`` selects which DAC code is recorded; pass None for a dark
-        frame, where no channel is driven.
+        Always reads the LED's actual commanded code — there is no colour
+        selection, since the source has no per-colour control.
         """
         state = self.led.update()
 
         reading = RigReading(
             led_current_a=state.current_a,
             bridge_temperature_c=state.temperature_c,
-            dac_code=0 if color is None else state.codes[color],
+            dac_code=state.code,
         )
 
         if self._external is not None:

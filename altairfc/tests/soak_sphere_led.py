@@ -1,8 +1,10 @@
 """Phase 1: quantify the sphere LEDs' brightness and temperature stability.
 
-Nothing has yet measured how much the sphere's output drifts as it warms up.
-This holds one LED at a fixed operating point for a long run and logs, once a
-second, everything needed to answer that:
+The sphere's R/G/B LEDs have no per-colour control — they are always driven
+together as one combined unit, off one DAC channel, with one current sense and
+one thermistor for the whole board (see drivers/sphere_led.py). This soaks that
+combined source at a fixed operating point for a long run and logs, once a
+second, everything needed to quantify its drift:
 
     dac_code, led_current_a       what the driver is actually delivering
     bridge_temperature_c          the LED board's temperature
@@ -12,11 +14,11 @@ second, everything needed to answer that:
 Run the same operating point twice, once in each mode, to see what the current
 loop buys you:
 
-    python tests/soak_sphere_led.py --led blue --code 2047 --mode open \\
-        --duration 3600 --csv soak_blue_open.csv
+    python tests/soak_sphere_led.py --code 2047 --mode open \\
+        --duration 3600 --csv soak_open.csv
 
-    python tests/soak_sphere_led.py --led blue --code 2047 --mode current \\
-        --target-current 0.35 --duration 3600 --csv soak_blue_pi.csv
+    python tests/soak_sphere_led.py --code 2047 --mode current \\
+        --target-current 0.35 --duration 3600 --csv soak_pi.csv
 
 The warm-up transient in the first run gives the dI/dT that
 Experiment_Design/01_source_calibration.md requires under "Source stability",
@@ -46,21 +48,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from drivers.sphere_led import Color  # noqa: E402
-from tests.sphere_rig import SphereRig, RigCsvWriter  # noqa: E402
+from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Soak one sphere LED at a fixed operating point and log its stability."
-    )
-    parser.add_argument(
-        "--led",
-        required=True,
-        choices=[c.value for c in Color],
-        help="Which LED to drive; the others stay at code 0",
+        description="Soak the sphere's combined LED source at a fixed operating point "
+        "and log its stability."
     )
     parser.add_argument(
         "--code", type=int, default=2047, help="Starting 12-bit DAC code (0-4095)"
@@ -130,7 +126,7 @@ def sample_dark(rig, writer, *, args, start) -> None:
     channels: dict[str, list[float]] = {"ext": [], "sgt": [], "sol": []}
     for i in range(args.dark_samples):
         try:
-            reading = rig.sample(None)
+            reading = rig.sample()
         except (OSError, TimeoutError) as e:
             print(f"[WARN] dark frame read error: {e}", file=sys.stderr)
             continue
@@ -138,7 +134,7 @@ def sample_dark(rig, writer, *, args, start) -> None:
             reading,
             elapsed_s=time.monotonic() - start,
             mode=args.mode,
-            led="dark",
+            led=LED_DARK_LABEL,
             sample_index=i,
             target_current_a=None,
         )
@@ -157,7 +153,7 @@ def sample_dark(rig, writer, *, args, start) -> None:
     )
 
 
-def dark_frame(rig, writer, *, color, code, target, args, start) -> None:
+def dark_frame(rig, writer, *, code, target, args, start) -> None:
     """Switch the LED off, sample the background, and restore the operating point.
 
     A dark frame perturbs the very thermal equilibrium the soak is measuring, so
@@ -171,9 +167,9 @@ def dark_frame(rig, writer, *, color, code, target, args, start) -> None:
 
     sample_dark(rig, writer, args=args, start=start)
 
-    rig.led.set_code(color, code)
+    rig.led.set_code(code)
     if target is not None:
-        rig.led.hold_current(target, color=color, kp=args.kp, ki=args.ki)
+        rig.led.hold_current(target, kp=args.kp, ki=args.ki)
     time.sleep(args.dark_settle)
 
 
@@ -191,7 +187,6 @@ def main() -> int:
         print("[FAIL] smbus2 not installed — run: pip install smbus2", file=sys.stderr)
         return 1
 
-    color = Color(args.led)
     bus = smbus2.SMBus(args.bus)
 
     try:
@@ -217,8 +212,8 @@ def main() -> int:
             print(f"[OK] Taking initial dark frame ({args.dark_samples} samples)")
             sample_dark(rig, writer, args=args, start=start)
 
-        rig.led.set_code(color, args.code)
-        print(f"[OK] {color.value} set to code {args.code}; settling {args.settle_s:.0f} s")
+        rig.led.set_code(args.code)
+        print(f"[OK] LEDs set to code {args.code}; settling {args.settle_s:.0f} s")
         time.sleep(args.settle_s)
 
         target = None
@@ -227,7 +222,7 @@ def main() -> int:
             if target is None:
                 target = rig.led.read_current_a()
                 print(f"[OK] Using settled draw as setpoint: {target:.4f} A")
-            rig.led.hold_current(target, color=color, kp=args.kp, ki=args.ki)
+            rig.led.hold_current(target, kp=args.kp, ki=args.ki)
 
         print(
             f"Logging every {args.interval:.2f} s for {args.duration:.0f} s "
@@ -245,13 +240,13 @@ def main() -> int:
             if loop_start >= next_dark:
                 dark_frame(
                     rig, writer,
-                    color=color, code=args.code, target=target, args=args, start=start,
+                    code=args.code, target=target, args=args, start=start,
                 )
                 next_dark = time.monotonic() + args.dark_interval
                 continue
 
             try:
-                reading = rig.sample(color)
+                reading = rig.sample()
             except (OSError, TimeoutError) as e:
                 # A flaky I2C/SPI read should cost one sample, not the run.
                 print(f"[WARN] read error, skipping sample: {e}", file=sys.stderr)
@@ -263,7 +258,7 @@ def main() -> int:
                 reading,
                 elapsed_s=elapsed,
                 mode=args.mode,
-                led=color.value,
+                led=LED_LIT_LABEL,
                 sample_index=sample_index,
                 target_current_a=target,
             )

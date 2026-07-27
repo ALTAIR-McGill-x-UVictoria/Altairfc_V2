@@ -1,39 +1,41 @@
-"""Integrating-sphere LED source: per-colour drive plus a current-hold loop.
+"""Integrating-sphere LED source: combined-drive control plus a current-hold loop.
 
-The sphere's LEDs are driven through an MCP4728 quad 12-bit I2C DAC (0x60),
-whose outputs set the constant-current LED driver modules.  Feedback comes from
-an ADS1115 (0x4A) on the same bus: LED drive current across a 2.2 ohm sense
-resistor on AIN0, and an NTC Wheatstone bridge on AIN2-AIN3.
+The sphere's R/G/B LEDs are driven together as ONE unit — there is no per-colour
+control. A single MCP4728 DAC channel (0x60) sets the drive level for all three
+combined; there is no independent DAC channel, switch, or driver per colour.
+Feedback comes from an ADS1115 (0x4A) on the same bus: LED drive current across
+a 2.2 ohm sense resistor on AIN0, and an NTC Wheatstone bridge on AIN2-AIN3 —
+both are properties of the board as a whole, not of any one colour.
 
-This module adds two things the bench scripts never had: a named colour ->
-channel mapping (test_LED_system.py addresses channels as bare integers 0-3),
-and an optional PI loop that holds drive current constant against the LED's
-forward-voltage drift as it warms up.
+Practical consequences worth being explicit about:
 
-Hardware limitation, important for interpreting any result:
+  * Brightness/current can be commanded and held constant, but the R:G:B mix
+    cannot be adjusted or isolated. "Blue only" is not physically achievable.
+  * A goniometric scan with this source measures the angular response of the
+    COMBINED spectrum, not a per-wavelength I(theta, phi, lambda) curve. That
+    conflicts with Experiment_Design/01_source_calibration.md section 2 step 3,
+    which requires each wavelength measured independently. Getting a true
+    per-wavelength curve needs either a hardware change (independently
+    switchable LED drivers) or a spectrally-resolving detector at the
+    goniometer stage — neither exists yet. See the project memory
+    ``goniometer-measurement-campaign`` for the open decision.
+  * The current-hold loop and the thermistor reading are therefore both
+    meaningful as-is (there is only ever one thing being measured), unlike an
+    earlier version of this module that assumed independent per-colour control.
 
-    There is ONE current-sense resistor and ONE thermistor for the whole
-    board.  Closed-loop current control is therefore only meaningful when a
-    single LED is driven at a time — which is how the goniometric scan must
-    run anyway, since angular response has to be measured per wavelength
-    (Experiment_Design/01_source_calibration.md, section 2 step 3).  With
-    several LEDs on at once the loop holds *total* current, and the
-    temperature reading is a single board temperature, not a per-LED junction
-    temperature.
-
-The loop has no thread of its own.  ``update()`` performs one iteration and
-the caller drives it, so the same object serves both the soak script's 1 Hz
-logging loop and the scan script's per-point dwell.
+The loop has no thread of its own. ``update()`` performs one iteration and the
+caller drives it, so the same object serves both the soak script's 1 Hz logging
+loop and the scan script's per-point dwell.
 
 Usage:
     import smbus2
     bus = smbus2.SMBus(1)
     src = SphereLedSource(bus=bus)
-    src.set_code(Color.BLUE, 2047)          # open loop
-    src.hold_current(0.35)                  # engage the PI loop
+    src.set_code(2047)             # open loop
+    src.hold_current(0.35)         # engage the PI loop
     while ...:
         state = src.update()
-    src.close()                             # all channels to 0
+    src.close()                    # drive to 0
 """
 
 from __future__ import annotations
@@ -41,7 +43,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from enum import Enum
 
 from drivers.ads1115 import SENSE_RESISTOR_OHM, Ads1115
 from drivers.mcp4728_driver import MAX_CODE, NUM_CHANNELS, MCP4728Driver
@@ -50,23 +51,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LDAC_PIN = 20  # BCM numbering, physical pin 38
 
-
-class Color(Enum):
-    RED = "red"
-    GREEN = "green"
-    BLUE = "blue"
-
-
-# MCP4728 channel index (0=A .. 3=D) per colour.  Confirm against the board
-# wiring before trusting a scan; override with the channel_map argument.
-DEFAULT_CHANNEL_MAP = {Color.RED: 0, Color.GREEN: 1, Color.BLUE: 2}
+# Which MCP4728 channel drives the sphere's combined LEDs. Confirm against the
+# board wiring; override with the channel argument if it differs.
+DEFAULT_CHANNEL = 0
 
 
 @dataclass
 class LedState:
     """One sample of the source's commanded and measured state."""
 
-    codes: dict[Color, int]
+    code: int
     current_a: float
     temperature_c: float
     target_current_a: float | None
@@ -80,7 +74,7 @@ class SphereLedSource:
         self,
         *,
         bus,
-        channel_map: dict[Color, int] | None = None,
+        channel: int = DEFAULT_CHANNEL,
         dac: MCP4728Driver | None = None,
         ads1115: Ads1115 | None = None,
         pi=None,
@@ -89,19 +83,15 @@ class SphereLedSource:
         i2c_dev: str = "/dev/i2c-1",
         sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
     ) -> None:
-        self.channel_map = dict(channel_map or DEFAULT_CHANNEL_MAP)
-        duplicates = len(set(self.channel_map.values())) != len(self.channel_map)
-        if duplicates:
-            raise ValueError(f"channel_map assigns one MCP4728 channel twice: {self.channel_map}")
-        for color, channel in self.channel_map.items():
-            if not 0 <= channel < NUM_CHANNELS:
-                raise ValueError(f"{color.value} maps to channel {channel}, must be 0-3")
+        if not 0 <= channel < NUM_CHANNELS:
+            raise ValueError(f"channel must be 0-3, got {channel}")
+        self.channel = channel
 
         self._sense_resistor_ohm = sense_resistor_ohm
         self._codes = [0] * NUM_CHANNELS
         self._target_current_a: float | None = None
         self._integral = 0.0
-        self._loop_color: Color | None = None
+        self._loop_engaged = False
         self._last_update_t: float | None = None
 
         # PI gains, in DAC codes per amp.  Defaults are deliberately gentle;
@@ -144,28 +134,23 @@ class SphereLedSource:
     # -- open-loop drive ---------------------------------------------------
 
     @property
-    def codes(self) -> dict[Color, int]:
-        return {color: self._codes[channel] for color, channel in self.channel_map.items()}
+    def code(self) -> int:
+        return self._codes[self.channel]
 
     def _flush(self) -> None:
         if not self._dac.set_codes(self._codes):
             raise OSError("MCP4728: Fast Write failed")
 
-    def set_code(self, color: Color, code: int) -> None:
-        """Set one colour's DAC code (0-4095), leaving the others untouched."""
-        self._codes[self.channel_map[color]] = max(0, min(MAX_CODE, int(code)))
-        self._flush()
-
-    def set_codes(self, codes: dict[Color, int]) -> None:
-        """Set several colours at once — one I2C transaction, so they step together."""
-        for color, code in codes.items():
-            self._codes[self.channel_map[color]] = max(0, min(MAX_CODE, int(code)))
+    def set_code(self, code: int) -> None:
+        """Set the combined LED drive to a DAC code (0-4095)."""
+        self._codes[self.channel] = max(0, min(MAX_CODE, int(code)))
         self._flush()
 
     def all_off(self) -> None:
-        """Drive every channel to code 0 and disengage any current loop."""
-        self._codes = [0] * NUM_CHANNELS
+        """Drive to code 0 and disengage any current loop."""
+        self._codes[self.channel] = 0
         self._target_current_a = None
+        self._loop_engaged = False
         self._integral = 0.0
         self._flush()
 
@@ -183,34 +168,13 @@ class SphereLedSource:
         self,
         target_a: float,
         *,
-        color: Color | None = None,
         kp: float | None = None,
         ki: float | None = None,
         deadband_a: float | None = None,
         max_code_step: int | None = None,
     ) -> None:
-        """Engage the PI loop holding measured drive current at ``target_a``.
-
-        ``color`` names the channel the loop actuates; it defaults to the only
-        channel currently driven above zero.  With more than one LED lit the
-        loop regulates total current — see the module docstring.
-        """
-        if color is None:
-            lit = [c for c, code in self.codes.items() if code > 0]
-            if len(lit) != 1:
-                raise ValueError(
-                    f"cannot infer which channel to actuate (lit channels: "
-                    f"{[c.value for c in lit]}) — pass color= explicitly"
-                )
-            color = lit[0]
-        if len([c for c, code in self.codes.items() if code > 0]) > 1:
-            logger.warning(
-                "SphereLedSource: more than one LED is lit — the current loop regulates "
-                "TOTAL board current, not %s alone",
-                color.value,
-            )
-
-        self._loop_color = color
+        """Engage the PI loop holding measured drive current at ``target_a``."""
+        self._loop_engaged = True
         self._target_current_a = float(target_a)
         self._integral = 0.0
         self._last_update_t = None
@@ -223,16 +187,13 @@ class SphereLedSource:
         if max_code_step is not None:
             self._max_code_step = max_code_step
         logger.info(
-            "SphereLedSource: holding %s at %.4f A (kp=%.1f ki=%.1f)",
-            color.value,
-            target_a,
-            self._kp,
-            self._ki,
+            "SphereLedSource: holding %.4f A (kp=%.1f ki=%.1f)", target_a, self._kp, self._ki
         )
 
     def open_loop(self) -> None:
-        """Disengage the current loop, leaving the DAC codes where they are."""
+        """Disengage the current loop, leaving the DAC code where it is."""
         self._target_current_a = None
+        self._loop_engaged = False
         self._integral = 0.0
 
     def update(self) -> LedState:
@@ -245,7 +206,7 @@ class SphereLedSource:
         temperature_c = self.read_bridge_temperature_c()
 
         settled = True
-        if self._target_current_a is not None and self._loop_color is not None:
+        if self._loop_engaged and self._target_current_a is not None:
             error = self._target_current_a - current_a
             settled = abs(error) <= self._deadband_a
             if not settled:
@@ -257,16 +218,15 @@ class SphereLedSource:
                 delta = self._kp * error + self._ki * self._integral
                 delta = max(-self._max_code_step, min(self._max_code_step, delta))
 
-                channel = self.channel_map[self._loop_color]
-                new_code = max(0, min(MAX_CODE, int(round(self._codes[channel] + delta))))
+                new_code = max(0, min(MAX_CODE, int(round(self.code + delta))))
                 # Anti-windup: stop integrating once the actuator is railed.
-                if new_code in (0, MAX_CODE) and self._codes[channel] == new_code:
+                if new_code in (0, MAX_CODE) and self.code == new_code:
                     self._integral -= error * dt
-                self._codes[channel] = new_code
+                self._codes[self.channel] = new_code
                 self._flush()
 
         return LedState(
-            codes=self.codes,
+            code=self.code,
             current_a=current_a,
             temperature_c=temperature_c,
             target_current_a=self._target_current_a,
@@ -276,11 +236,11 @@ class SphereLedSource:
     # -- lifecycle ---------------------------------------------------------
 
     def close(self) -> None:
-        """Zero every channel, then release the DAC and any pigpio handle we own."""
+        """Drive to 0, then release the DAC and any pigpio handle we own."""
         try:
             self.all_off()
         except Exception:
-            logger.exception("SphereLedSource: failed to zero LED channels on close")
+            logger.exception("SphereLedSource: failed to zero the LED channel on close")
         try:
             self._dac.close()
         except Exception:
