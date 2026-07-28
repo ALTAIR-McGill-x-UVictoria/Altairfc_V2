@@ -453,6 +453,14 @@ def run_scan(args) -> int:
 
     except KeyboardInterrupt:
         print("\nScan interrupted — data written so far is intact")
+        return 0
+    except ValueError as e:
+        # validate_reachable() should catch this before any motion starts;
+        # this is a backstop (e.g. the calibration file changed mid-run), so
+        # it fails clearly instead of with a raw traceback. Data already
+        # written is intact either way, same as KeyboardInterrupt above.
+        print(f"\n[FAIL] Scan stopped: {e}", file=sys.stderr)
+        return 1
     finally:
         rig.close()
         stage.park()
@@ -466,6 +474,37 @@ def run_scan(args) -> int:
     return 0
 
 
+def validate_reachable(args) -> bool:
+    """Check every requested --polar/--azimuth angle against the calibrated
+    reachable range, printing a clear diagnosis for anything outside it.
+
+    A mechanical offset found during --home (see AxisCalibration.reachable_range)
+    can leave part of an axis's nominal travel unreachable. Without this check
+    that only surfaces as GoniometerStage.move_to() raising ValueError partway
+    through a real scan -- after some hardware motion and possibly minutes of
+    good data already collected. Running this at describe()/--dry-run time
+    catches it before anything moves.
+    """
+    polar_cal, azimuth_cal = load_calibration(args.calibration)
+    ok = True
+    for axis_name, cal, requested in (
+        ("polar", polar_cal, args.polar),
+        ("azimuth", azimuth_cal, args.azimuth),
+    ):
+        lo, hi = cal.reachable_range()
+        bad = [a for a in requested if not lo <= a <= hi]
+        if bad:
+            ok = False
+            print(
+                f"[FAIL] --{axis_name} includes angle(s) outside the calibrated reachable "
+                f"range [{lo:+.1f}, {hi:+.1f}] deg: {', '.join(f'{a:+g}' for a in bad)}\n"
+                f"       Narrow --{axis_name} to stay inside that range, or re-run --home "
+                "if the mechanical offset should no longer be there.",
+                file=sys.stderr,
+            )
+    return ok
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args()
@@ -475,6 +514,9 @@ def main() -> int:
 
     if not 0 <= args.code <= MAX_SAFE_CODE:
         print(f"[FAIL] --code must be 0-{MAX_SAFE_CODE}, got {args.code}", file=sys.stderr)
+        return 1
+
+    if not validate_reachable(args):
         return 1
 
     describe(args)
