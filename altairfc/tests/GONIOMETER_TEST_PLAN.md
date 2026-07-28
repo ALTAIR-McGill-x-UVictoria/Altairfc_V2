@@ -152,6 +152,11 @@ python tests/scan_goniometer.py --polar -90:90:5 --azimuth 0:180:45 --csv lab_da
 Add `--target-current <value>` on both if Step 3 showed meaningful drift.
 At least 2 azimuths is required — it's the symmetry check, not padding.
 
+The scan moves nadir (polar, servo b) as the outer loop and azimuth (servo a)
+as the inner loop — for each nadir angle it sweeps every azimuth before
+moving nadir again, since nadir is the harder motion on this jig and this
+keeps it to one move per `--polar` value instead of one per sample.
+
 ## Step 8 — Reduce
 
 ```bash

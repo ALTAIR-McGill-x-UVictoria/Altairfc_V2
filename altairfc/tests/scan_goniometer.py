@@ -25,11 +25,17 @@ combined-spectrum response, not a per-wavelength one, until that changes.
 
 Three things the requirements imply but do not spell out, all done here:
 
-  * A dark frame opens every azimuth arm (LEDs off, same sample count,
+  * A dark frame opens every polar (nadir) arm (LEDs off, same sample count,
     led="dark"). At a 2 mm aperture and 50 cm this is not optional.
   * The first angle is repeated at the end of the scan, bounding source drift
     across the run — the within-scan version of the doc's before/after check.
   * Rows are flushed as they are measured, so an interrupted scan keeps its data.
+
+Move order: polar (nadir) is the OUTER loop, azimuth is the INNER loop — for
+each nadir angle, sweep every azimuth before moving nadir again. The polar
+axis (servo b / BCM 26 by default) is the harder motion on this jig, so it
+only moves once per nadir angle instead of once per sample; azimuth (servo a
+/ BCM 16) absorbs the frequent moves.
 
 Usage:
     python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth 0:180:90
@@ -195,7 +201,7 @@ def estimate_seconds(args, n_points: int, n_dark: int) -> float:
 def describe(args) -> tuple[int, int]:
     """Print the planned sequence; return (measurement points, dark frames)."""
     n_points = len(args.azimuth) * len(args.polar)
-    n_dark = 0 if args.no_dark else len(args.azimuth)
+    n_dark = 0 if args.no_dark else len(args.polar)  # one dark frame per nadir arm
     if not args.no_repeat:
         n_points += 1
 
@@ -390,22 +396,23 @@ def run_scan(args) -> int:
         if args.target_current is not None:
             rig.led.hold_current(args.target_current)
 
-        # Drift-check reference: the polar angle nearest normal incidence on the
-        # first arm. Deliberately not the first point measured, which is the
-        # grazing edge of the sweep where there is least signal and a drift
-        # ratio would be dominated by noise.
+        # Drift-check reference: the polar angle nearest normal incidence,
+        # first azimuth. Deliberately not the first point measured, which is
+        # the grazing edge of the sweep where there is least signal and a
+        # drift ratio would be dominated by noise.
         reference_position = (min(args.polar, key=abs), args.azimuth[0])
 
-        for azimuth_deg in args.azimuth:
+        for polar_deg in args.polar:
             if not args.no_dark:
                 # Dark frame for this arm: same optics, same detector, LEDs off.
-                stage.move_to(args.polar[0], azimuth_deg)
+                # Azimuth-only move — nadir (servo b) is already at polar_deg.
+                stage.move_to(polar_deg, args.azimuth[0])
                 rig.led.all_off()  # also disengages the current loop
                 time.sleep(args.settle)
                 measure_point(
                     rig, writer,
                     led_label=LED_DARK_LABEL,
-                    polar_deg=args.polar[0], azimuth_deg=azimuth_deg,
+                    polar_deg=polar_deg, azimuth_deg=args.azimuth[0],
                     samples=args.samples, start=start, mode=mode, target_current_a=None,
                 )
                 rig.led.set_code(args.code)
@@ -413,7 +420,7 @@ def run_scan(args) -> int:
                     rig.led.hold_current(args.target_current)
                 time.sleep(args.settle)
 
-            for polar_deg in args.polar:
+            for azimuth_deg in args.azimuth:
                 stage.move_to(polar_deg, azimuth_deg)
                 measure_point(
                     rig, writer,
