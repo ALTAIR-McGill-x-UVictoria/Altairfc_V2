@@ -186,6 +186,11 @@ class GoniometerStage:
         self._pi = pi
         self._owns_pi = pi is None
         self._current: tuple[float, float] | None = None
+        # Last-commanded raw servo degree per axis, tracked separately from
+        # self._current (which is calibrated STAGE degrees) because
+        # jog_servo() is used precisely when the stage calibration may not be
+        # valid yet -- servo_deg()/stage_deg() can't be trusted during homing.
+        self._servo_deg = {"polar": 90.0, "azimuth": 90.0}
 
     @property
     def current_angles(self) -> tuple[float, float] | None:
@@ -220,8 +225,34 @@ class GoniometerStage:
             logger.error("pigpio init failed: %s — stage disabled", e)
             return False
 
-    def _write(self, pin: int, servo_deg: float) -> None:
+    def _write(self, axis: str, pin: int, servo_deg: float) -> None:
         self._pi.set_servo_pulsewidth(pin, int(servo_deg_to_pulsewidth(servo_deg)))
+        self._servo_deg[axis] = servo_deg
+
+    def _slew_to(self, targets: dict[str, tuple[int, float]]) -> None:
+        """Step every axis in ``targets`` from its last commanded servo degree
+        to a new one at ``slew_rate_deg_s``, all axes moving together over the
+        same step count so the move takes as long as the slowest axis rather
+        than the sum of them. Writes instantly if slew_rate_deg_s is falsy.
+
+        Shared by move_to() (stage-degree moves) and jog_servo() (raw
+        servo-degree jogs during homing) specifically so neither path can
+        accidentally skip slew-limiting — this jig carries the sphere.
+        """
+        if not self.slew_rate_deg_s:
+            for axis, (pin, target) in targets.items():
+                self._write(axis, pin, target)
+            return
+
+        starts = {axis: self._servo_deg[axis] for axis in targets}
+        step = self.slew_rate_deg_s * STEP_PERIOD_S
+        span = max(abs(target - starts[axis]) for axis, (_pin, target) in targets.items())
+        steps = max(1, math.ceil(span / step))
+        for i in range(1, steps + 1):
+            frac = i / steps
+            for axis, (pin, target) in targets.items():
+                self._write(axis, pin, starts[axis] + (target - starts[axis]) * frac)
+            time.sleep(STEP_PERIOD_S)
 
     def move_to(
         self,
@@ -232,39 +263,17 @@ class GoniometerStage:
     ) -> tuple[float, float]:
         """Slew both axes to a stage position and dwell for ``settle_s``.
 
-        Blocks until the move completes.  Both axes step together at
-        STEP_PERIOD_S so the total move takes as long as the slower axis rather
-        than the sum of the two.
+        Blocks until the move completes.
         """
         if self._pi is None:
             raise RuntimeError("GoniometerStage.connect() must succeed before move_to()")
 
-        target_polar_servo = self.polar.servo_deg(polar_deg)
-        target_azimuth_servo = self.azimuth.servo_deg(azimuth_deg)
-
-        if self._current is None or not self.slew_rate_deg_s:
-            self._write(self.polar.pin, target_polar_servo)
-            self._write(self.azimuth.pin, target_azimuth_servo)
-        else:
-            start_polar_servo = self.polar.servo_deg(self._current[0])
-            start_azimuth_servo = self.azimuth.servo_deg(self._current[1])
-            step = self.slew_rate_deg_s * STEP_PERIOD_S
-            span = max(
-                abs(target_polar_servo - start_polar_servo),
-                abs(target_azimuth_servo - start_azimuth_servo),
-            )
-            steps = max(1, math.ceil(span / step))
-            for i in range(1, steps + 1):
-                frac = i / steps
-                self._write(
-                    self.polar.pin,
-                    start_polar_servo + (target_polar_servo - start_polar_servo) * frac,
-                )
-                self._write(
-                    self.azimuth.pin,
-                    start_azimuth_servo + (target_azimuth_servo - start_azimuth_servo) * frac,
-                )
-                time.sleep(STEP_PERIOD_S)
+        self._slew_to(
+            {
+                "polar": (self.polar.pin, self.polar.servo_deg(polar_deg)),
+                "azimuth": (self.azimuth.pin, self.azimuth.servo_deg(azimuth_deg)),
+            }
+        )
 
         self._current = (polar_deg, azimuth_deg)
         if settle and self.settle_s > 0:
@@ -276,16 +285,20 @@ class GoniometerStage:
         return self.move_to(self.polar.center_deg, self.azimuth.center_deg)
 
     def jog_servo(self, axis: str, servo_deg: float) -> None:
-        """Drive one axis directly in servo degrees, bypassing the stage mapping.
+        """Slew one axis directly in servo degrees, bypassing the stage mapping.
 
         Only for homing, where the mapping is precisely what is being
-        established. Invalidates the tracked position, so the next move_to()
-        jumps rather than slewing.
+        established — calibrated stage angles may not even be valid yet.
+        Still slew-rate limited like move_to(), for the same reason: this jig
+        carries the sphere. Invalidates the tracked stage position, so the
+        next move_to() treats this jog's endpoint as its starting point rather
+        than assuming continuity with the last calibrated move.
         """
         if self._pi is None:
             raise RuntimeError("GoniometerStage.connect() must succeed before jog_servo()")
         cal = self.polar if axis == "polar" else self.azimuth
-        self._write(cal.pin, max(0.0, min(180.0, servo_deg)))
+        target = max(0.0, min(180.0, servo_deg))
+        self._slew_to({axis: (cal.pin, target)})
         self._current = None
 
     def park(self) -> None:
@@ -301,6 +314,11 @@ class GoniometerStage:
             self._pi.stop()
             self._pi = None
         self._current = None
+        # Releasing the pulse means the servo's true position is no longer
+        # known; a subsequent move should not assume it's still where we last
+        # commanded it. Resetting to the servo's mechanical centre matches the
+        # assumption move_to()/jog_servo() already make on a fresh connect.
+        self._servo_deg = {"polar": 90.0, "azimuth": 90.0}
 
     def __enter__(self) -> GoniometerStage:
         return self
