@@ -232,29 +232,26 @@ class GoniometerStage:
         self._pi.set_servo_pulsewidth(pin, int(servo_deg_to_pulsewidth(servo_deg)))
         self._servo_deg[axis] = servo_deg
 
-    def _slew_to(self, targets: dict[str, tuple[int, float]]) -> None:
-        """Step every axis in ``targets`` from its last commanded servo degree
-        to a new one at ``slew_rate_deg_s``, all axes moving together over the
-        same step count so the move takes as long as the slowest axis rather
-        than the sum of them. Writes instantly if slew_rate_deg_s is falsy.
+    def _slew_one(self, axis: str, pin: int, target: float) -> None:
+        """Step a single axis from its last commanded servo degree to a new
+        one at ``slew_rate_deg_s``. Writes instantly if slew_rate_deg_s is
+        falsy.
 
-        Shared by move_to() (stage-degree moves) and jog_servo() (raw
-        servo-degree jogs during homing) specifically so neither path can
-        accidentally skip slew-limiting — this jig carries the sphere.
+        Deliberately one axis per call, never two at once: the jig's
+        mechanical linkage can bind or fail if both servos are driven
+        simultaneously. move_to() always finishes one axis completely before
+        starting the other — see its docstring.
         """
         if not self.slew_rate_deg_s:
-            for axis, (pin, target) in targets.items():
-                self._write(axis, pin, target)
+            self._write(axis, pin, target)
             return
 
-        starts = {axis: self._servo_deg[axis] for axis in targets}
+        start = self._servo_deg[axis]
         step = self.slew_rate_deg_s * STEP_PERIOD_S
-        span = max(abs(target - starts[axis]) for axis, (_pin, target) in targets.items())
-        steps = max(1, math.ceil(span / step))
+        steps = max(1, math.ceil(abs(target - start) / step))
         for i in range(1, steps + 1):
             frac = i / steps
-            for axis, (pin, target) in targets.items():
-                self._write(axis, pin, starts[axis] + (target - starts[axis]) * frac)
+            self._write(axis, pin, start + (target - start) * frac)
             time.sleep(STEP_PERIOD_S)
 
     def move_to(
@@ -264,19 +261,24 @@ class GoniometerStage:
         *,
         settle: bool = True,
     ) -> tuple[float, float]:
-        """Slew both axes to a stage position and dwell for ``settle_s``.
+        """Slew polar, then azimuth, to a stage position and dwell for ``settle_s``.
 
-        Blocks until the move completes.
+        Blocks until the move completes. The two axes are moved strictly
+        sequentially — never simultaneously — because simultaneous motion can
+        bind or damage the jig's mechanical linkage. This means a move
+        touching both axes takes as long as polar's move plus azimuth's move,
+        not just the slower of the two. Both target angles are validated
+        before either axis moves, so an out-of-range angle on one axis can't
+        leave the other axis moved with no matching follow-up move.
         """
         if self._pi is None:
             raise RuntimeError("GoniometerStage.connect() must succeed before move_to()")
 
-        self._slew_to(
-            {
-                "polar": (self.polar.pin, self.polar.servo_deg(polar_deg)),
-                "azimuth": (self.azimuth.pin, self.azimuth.servo_deg(azimuth_deg)),
-            }
-        )
+        target_polar_servo = self.polar.servo_deg(polar_deg)
+        target_azimuth_servo = self.azimuth.servo_deg(azimuth_deg)
+
+        self._slew_one("polar", self.polar.pin, target_polar_servo)
+        self._slew_one("azimuth", self.azimuth.pin, target_azimuth_servo)
 
         self._current = (polar_deg, azimuth_deg)
         if settle and self.settle_s > 0:
@@ -301,7 +303,7 @@ class GoniometerStage:
             raise RuntimeError("GoniometerStage.connect() must succeed before jog_servo()")
         cal = self.polar if axis == "polar" else self.azimuth
         target = max(0.0, min(180.0, servo_deg))
-        self._slew_to({axis: (cal.pin, target)})
+        self._slew_one(axis, cal.pin, target)
         self._current = None
 
     def park(self) -> None:
