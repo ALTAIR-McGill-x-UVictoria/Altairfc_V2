@@ -128,7 +128,7 @@ Saves to `goniometer_home.json`, persists across sessions.
 ## Step 5 — Scan dry run (no hardware touched)
 
 ```bash
-python tests/scan_goniometer.py --dry-run --polar -90:90:5 --azimuth 0:180:45
+python tests/scan_goniometer.py --dry-run --polar -90:90:5 --azimuth -90:90:45
 ```
 
 Check the printed row count and duration estimate before committing.
@@ -144,9 +144,9 @@ python tests/scan_goniometer.py --polar 0 --azimuth 0 --samples 20 --csv lab_dat
 ## Step 7 — Coarse scan, then fine
 
 ```bash
-python tests/scan_goniometer.py --polar -90:90:15 --azimuth 0:180:90 --csv lab_data/coarse.csv
+python tests/scan_goniometer.py --polar -90:90:15 --azimuth -90:90:90 --csv lab_data/coarse.csv
 # then, once that looks right:
-python tests/scan_goniometer.py --polar -90:90:5 --azimuth 0:180:45 --csv lab_data/fine.csv
+python tests/scan_goniometer.py --polar -90:90:5 --azimuth -90:90:45 --csv lab_data/fine.csv
 ```
 
 Add `--target-current <value>` on both if Step 3 showed meaningful drift.

@@ -38,9 +38,9 @@ only moves once per nadir angle instead of once per sample; azimuth (servo a
 / BCM 16) absorbs the frequent moves.
 
 Usage:
-    python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth 0:180:90
+    python tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth -90:90:90
     python tests/scan_goniometer.py --home
-    python tests/scan_goniometer.py --polar -90:90:5 --azimuth 0:180:45 \\
+    python tests/scan_goniometer.py --polar -90:90:5 --azimuth -90:90:45 \\
         --settle 2.0 --samples 20 --csv scan_2026-07-27.csv
 
 Budget the run. ads1220_read_single_shot() is not DRDY-driven: it sleeps a
@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Polar theta range from the port normal, 'start:stop:step' in degrees",
     )
     parser.add_argument(
-        "--azimuth", type=parse_range, default="0:180:45",
+        "--azimuth", type=parse_range, default="-90:90:45",
         help="Azimuth phi range about the normal, 'start:stop:step' in degrees",
     )
     parser.add_argument(

@@ -4,7 +4,10 @@ The jig rotates the sphere about its exit port in two axes while a photodiode
 stays fixed at range, sweeping one hemisphere of emission directions:
 
     polar   theta   angle from the exit port's normal, nominally +/-90 deg
-    azimuth phi     rotation about that normal, nominally 0..180 deg
+    azimuth phi     rotation about that normal, nominally +/-90 deg
+
+Both axes share the same shape: 180 degrees of physical servo travel, centred
+on the servo's own mechanical centre (servo 90 deg == stage 0 deg on both).
 
 Angle convention matters and is not arbitrary: theta must be defined
 identically to ``calculate_emission_angle()`` in the analysis pipeline (angle
@@ -54,10 +57,10 @@ class AxisCalibration:
     """Mechanical mapping from a stage angle to a servo command.
 
     ``center_deg`` is the stage angle that sits at the servo's mechanical
-    centre (90 deg) — 0 for a polar axis spanning +/-90, but 90 for an azimuth
-    axis spanning 0..180, since both must fit the servo's single 0-180 travel.
-    ``gear_ratio`` is degrees of servo travel per degree of stage motion, 1.0
-    for direct drive.  ``invert`` flips the sense of positive stage angles.
+    centre (90 deg) — 0 for both axes by default, since both span +/-90 deg
+    of stage travel over the servo's 0-180 deg range.  ``gear_ratio`` is
+    degrees of servo travel per degree of stage motion, 1.0 for direct drive.
+    ``invert`` flips the sense of positive stage angles.
     """
 
     pin: int
@@ -128,7 +131,7 @@ POLAR_DEFAULT = AxisCalibration(
     pin=DEFAULT_POLAR_PIN, center_deg=0.0, min_deg=-90.0, max_deg=90.0
 )
 AZIMUTH_DEFAULT = AxisCalibration(
-    pin=DEFAULT_AZIMUTH_PIN, center_deg=90.0, min_deg=0.0, max_deg=180.0
+    pin=DEFAULT_AZIMUTH_PIN, center_deg=0.0, min_deg=-90.0, max_deg=90.0
 )
 
 
