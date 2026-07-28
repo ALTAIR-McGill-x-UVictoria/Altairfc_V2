@@ -1,0 +1,1 @@
+timestamp_utc,elapsed_s,mode,led,polar_deg,azimuth_deg,sample_index,dac_code,target_current_a,led_current_a,bridge_temperature_c,sgt_tia_v,sol_tia_v,external_pd_v
