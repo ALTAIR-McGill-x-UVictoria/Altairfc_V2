@@ -199,11 +199,16 @@ def estimate_seconds(args, n_points: int, n_dark: int) -> float:
 
 
 def describe(args) -> tuple[int, int]:
-    """Print the planned sequence; return (measurement points, dark frames)."""
+    """Print the estimated run time up front, then the planned sequence.
+
+    Returns (measurement points, dark frames).
+    """
     n_points = len(args.azimuth) * len(args.polar)
     n_dark = 0 if args.no_dark else len(args.polar)  # one dark frame per nadir arm
     if not args.no_repeat:
         n_points += 1
+
+    print(f"Estimated run time: {estimate_seconds(args, n_points, n_dark) / 60.0:.1f} minutes\n")
 
     print(
         f"Source    : combined R+G+B, {args.channel}-power channel, "
@@ -214,7 +219,6 @@ def describe(args) -> tuple[int, int]:
     print(f"Samples   : {args.samples} per angle")
     print(f"Points    : {n_points} measurement + {n_dark} dark")
     print(f"Rows      : {(n_points + n_dark) * args.samples}")
-    print(f"Estimate  : {estimate_seconds(args, n_points, n_dark) / 60.0:.1f} minutes")
     if len(args.azimuth) < 2:
         print(
             "\n[WARN] Only one azimuth. The azimuthal-symmetry check requires at least two,\n"

@@ -5,7 +5,8 @@
       "Read(//home/bdagn/.ssh/**)",
       "Bash(ssh-keygen -t ed25519 -C \"$\\(whoami\\)@$\\(hostname\\)-altairfc\" -f ~/.ssh/id_ed25519_altairfc -N \"\")",
       "Bash(ssh-copy-id -i ~/.ssh/id_ed25519_altairfc.pub altairfc)",
-      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=5 altairfc \"echo connected as \\\\$\\(whoami\\) on \\\\$\\(hostname\\)\")"
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=5 altairfc \"echo connected as \\\\$\\(whoami\\) on \\\\$\\(hostname\\)\")",
+      "Bash(python3 tests/scan_goniometer.py --dry-run --polar -90:90:15 --azimuth -90:90:15)"
     ]
   }
 }
