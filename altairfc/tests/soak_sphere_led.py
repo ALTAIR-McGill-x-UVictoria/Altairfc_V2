@@ -2,11 +2,12 @@
 
 The sphere's R/G/B LEDs have no per-colour control — they are always driven
 together as one combined optical output, with one current sense and one
-thermistor for the whole board (see drivers/sphere_led.py). What DOES exist is
-two independently addressable drive channels for that combined output: a
-high-power channel (MCP4728 A) and a low-power channel (MCP4728 B) — select
-with --channel. DAC codes on both are hard-limited to 1400 by the driver
-itself, unconditionally, regardless of what --code requests.
+thermistor for the whole board (see drivers/sphere_led.py), on a single drive
+channel (MCP4728 A / high power). MCP4728 channel B, previously a second
+sphere drive stage, is now reserved for the external spotter beacon
+(drivers/beacon_led.py) and is no longer selectable here. DAC codes are
+hard-limited to 1400 by the driver itself, unconditionally, regardless of
+what --code requests.
 
 This soaks the source at a fixed operating point for a long run and logs, once
 a second, everything needed to quantify its drift:
@@ -55,14 +56,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from drivers.sphere_led import (  # noqa: E402
     HIGH_POWER_CHANNEL,
-    LOW_POWER_CHANNEL,
     MAX_SAFE_CODE,
 )
 from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL, "low": LOW_POWER_CHANNEL}
+_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,7 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--channel", choices=sorted(_CHANNEL_CHOICES), default="high",
-        help="Which drive channel to soak: high power (MCP4728 A) or low power (MCP4728 B)",
+        help="Which drive channel to soak (only 'high' / MCP4728 A remains — "
+        "MCP4728 B now belongs to the external spotter beacon)",
     )
     parser.add_argument(
         "--code", type=int, default=700,

@@ -1,22 +1,26 @@
-"""Integrating-sphere LED source: two-channel drive control plus a current-hold loop.
+"""Integrating-sphere LED source: single-channel drive control plus a current-hold loop.
 
 The sphere's R/G/B LEDs are driven together as ONE combined optical output —
 there is no per-colour control, no independent DAC channel/switch/driver per
-colour. What DOES exist is two independently addressable drive channels for
-that combined output, on two MCP4728 DAC channels (0x60):
+colour. This source uses one MCP4728 DAC channel (0x60):
 
     HIGH_POWER_CHANNEL = 0  (MCP4728 channel A)
-    LOW_POWER_CHANNEL  = 1  (MCP4728 channel B)
 
-Feedback comes from an ADS1115 (0x4A) on the same bus: LED drive current across
-a 2.2 ohm sense resistor on AIN0, and an NTC Wheatstone bridge on AIN2-AIN3 —
-both are properties of the board as a whole, not of any one channel or colour.
+MCP4728 channel B (index 1) is no longer a second sphere drive stage — it is
+now wired to a physically separate, non-sphere external LED used to let
+ground observers visually spot the payload (see drivers/beacon_led.py). The
+sphere source and that beacon must never be energized at the same time; both
+channels now share a single drivers/led_board.LedBoard, which owns the MCP4728
+Multi-Write and enforces that interlock.
+
+Feedback comes from an ADS1115 (0x4A) on the same bus: this channel's drive
+current across its own 2.2 ohm sense resistor (AIN0), and an NTC Wheatstone
+bridge on AIN2-AIN3, both properties of the sphere source board.
 
 Practical consequences worth being explicit about:
 
-  * Brightness/current can be commanded and held constant per channel, but the
-    R:G:B mix cannot be adjusted or isolated. "Blue only" is not physically
-    achievable on either channel.
+  * Brightness/current can be commanded and held constant, but the R:G:B mix
+    cannot be adjusted or isolated. "Blue only" is not physically achievable.
   * A goniometric scan with this source measures the angular response of the
     COMBINED spectrum, not a per-wavelength I(theta, phi, lambda) curve. That
     conflicts with Experiment_Design/01_source_calibration.md section 2 step 3,
@@ -25,13 +29,9 @@ Practical consequences worth being explicit about:
     switchable LED drivers) or a spectrally-resolving detector at the
     goniometer stage — neither exists yet. See the project memory
     ``goniometer-measurement-campaign`` for the open decision.
-  * The current-hold loop and the thermistor reading are board-wide, not
-    per-channel — engaging the loop on one channel while the other is also
-    driven regulates their combined current, same caveat as combining colours.
 
-DAC codes on BOTH channels are hard-limited to MAX_SAFE_CODE by this driver,
-unconditionally, regardless of what a caller requests — see MAX_SAFE_CODE
-below for why.
+DAC codes are hard-limited to MAX_SAFE_CODE by this driver, unconditionally,
+regardless of what a caller requests — see MAX_SAFE_CODE below for why.
 
 The loop has no thread of its own. ``update()`` performs one iteration and the
 caller drives it, so the same object serves both the soak script's 1 Hz logging
@@ -40,12 +40,18 @@ loop and the scan script's per-point dwell.
 Usage:
     import smbus2
     bus = smbus2.SMBus(1)
-    src = SphereLedSource(bus=bus)                      # defaults to HIGH_POWER_CHANNEL
+    src = SphereLedSource(bus=bus)                      # owns its own LedBoard
     src.set_code(1400)             # open loop, clamped to MAX_SAFE_CODE regardless
     src.hold_current(0.35)         # engage the PI loop
     while ...:
         state = src.update()
     src.close()                    # drive to 0
+
+To share the MCP4728 with a BeaconChannel (flight configuration), construct a
+LedBoard once and pass it to both:
+    board = LedBoard(bus=bus)
+    src = SphereLedSource(board=board)
+    beacon = BeaconChannel(board=board)
 """
 
 from __future__ import annotations
@@ -55,23 +61,22 @@ import time
 from dataclasses import dataclass
 
 from drivers.ads1115 import SENSE_RESISTOR_OHM, Ads1115
-from drivers.mcp4728_driver import MAX_CODE, NUM_CHANNELS, MCP4728Driver
+from drivers.led_board import DEFAULT_LDAC_PIN, SPHERE_CHANNEL, LedBoard
+from drivers.mcp4728_driver import MAX_CODE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LDAC_PIN = 20  # BCM numbering, physical pin 38
-
-# The two drive channels wired on this board. Channels 2/3 (C/D) are not used.
-HIGH_POWER_CHANNEL = 0  # MCP4728 channel A
-LOW_POWER_CHANNEL = 1   # MCP4728 channel B
-VALID_CHANNELS = (HIGH_POWER_CHANNEL, LOW_POWER_CHANNEL)
+# The one drive channel this source uses. Channel 1 (MCP4728 B) now belongs to
+# the external spotter beacon — see drivers/beacon_led.py.
+HIGH_POWER_CHANNEL = SPHERE_CHANNEL  # MCP4728 channel A
+VALID_CHANNELS = (HIGH_POWER_CHANNEL,)
 
 DEFAULT_CHANNEL = HIGH_POWER_CHANNEL
 
-# Hard ceiling on the DAC code, enforced by this driver on BOTH channels
-# regardless of what a caller requests (--code, hold_current's PI output,
-# anything). This is a safety limit, not a suggestion — do not raise it
-# without confirming what it is actually protecting against.
+# Hard ceiling on the DAC code, enforced by this driver regardless of what a
+# caller requests (--code, hold_current's PI output, anything). This is a
+# safety limit, not a suggestion — do not raise it without confirming what it
+# is actually protecting against.
 MAX_SAFE_CODE = 1400
 assert MAX_SAFE_CODE <= MAX_CODE, "MAX_SAFE_CODE must not exceed the DAC's own 12-bit range"
 
@@ -88,14 +93,15 @@ class LedState:
 
 
 class SphereLedSource:
-    """Own the MCP4728, its LDAC line, and the ADS1115 feedback channels."""
+    """Drive the sphere source channel through a shared LedBoard."""
 
     def __init__(
         self,
         *,
-        bus,
+        bus=None,
         channel: int = DEFAULT_CHANNEL,
-        dac: MCP4728Driver | None = None,
+        board: LedBoard | None = None,
+        dac=None,
         ads1115: Ads1115 | None = None,
         pi=None,
         ldac_pin: int = DEFAULT_LDAC_PIN,
@@ -104,14 +110,10 @@ class SphereLedSource:
         sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
     ) -> None:
         if channel not in VALID_CHANNELS:
-            raise ValueError(
-                f"channel must be HIGH_POWER_CHANNEL ({HIGH_POWER_CHANNEL}) or "
-                f"LOW_POWER_CHANNEL ({LOW_POWER_CHANNEL}), got {channel}"
-            )
+            raise ValueError(f"channel must be HIGH_POWER_CHANNEL ({HIGH_POWER_CHANNEL}), got {channel}")
         self.channel = channel
 
         self._sense_resistor_ohm = sense_resistor_ohm
-        self._codes = [0] * NUM_CHANNELS
         self._target_current_a: float | None = None
         self._integral = 0.0
         self._loop_engaged = False
@@ -124,77 +126,42 @@ class SphereLedSource:
         self._deadband_a = 0.001
         self._max_code_step = 8
 
-        self._dac = dac if dac is not None else MCP4728Driver(i2c_dev)
-        self._ads = ads1115 if ads1115 is not None else Ads1115(bus)
-
-        self._pi = pi
-        self._owns_pi = False
-        self._ldac_pin = ldac_pin
-        if use_ldac:
-            self._open_ldac(pi)
-
-        if not self._dac.set_vdd_reference(self._codes):
-            raise OSError("MCP4728: initial Multi-Write failed — check I2C bus and address 0x60")
-
-    def _open_ldac(self, pi) -> None:
-        """Hold LDAC low so DAC writes reach VOUT immediately."""
-        if pi is None:
-            import pigpio
-
-            pi = pigpio.pi()
-            if not pi.connected:
-                raise RuntimeError("Cannot connect to pigpio daemon. Run: sudo pigpiod")
-            self._owns_pi = True
-        import pigpio
-
-        pi.set_mode(self._ldac_pin, pigpio.OUTPUT)
-        pi.write(self._ldac_pin, 0)
-        self._pi = pi
-        logger.info("SphereLedSource: LDAC (BCM %d) held low", self._ldac_pin)
+        if board is not None:
+            self._board = board
+            self._owns_board = False
+        else:
+            self._board = LedBoard(
+                bus=bus, dac=dac, ads1115=ads1115, pi=pi,
+                ldac_pin=ldac_pin, use_ldac=use_ldac, i2c_dev=i2c_dev,
+            )
+            self._owns_board = True
 
     # -- open-loop drive ---------------------------------------------------
 
     @property
     def code(self) -> int:
-        return self._codes[self.channel]
-
-    def _flush(self) -> None:
-        """Push self._codes to the DAC via Multi-Write, not Fast Write.
-
-        Fast Write (MCP4728Driver.set_codes / mcp4728_fast_write) failed with
-        an I2C-level ioctl error the first time it was ever exercised against
-        real hardware — no existing script in this repo used it before;
-        test_LED_system.py and friends all bypass drivers/mcp4728_driver.py
-        and write via raw smbus2 Multi-Write instead. The frame this driver
-        sends matches the MCP4728 datasheet's Fast Write layout on inspection,
-        so the fault is unconfirmed (bus/wiring vs. a subtler protocol issue).
-        Multi-Write is confirmed working and costs 3 extra I2C transactions
-        per update, irrelevant at this loop's ~1 Hz / per-sample rate, so it
-        is used unconditionally rather than chasing the root cause further.
-        """
-        if not self._dac.set_vdd_reference(self._codes):
-            raise OSError("MCP4728: Multi-Write failed")
+        return self._board.code(self.channel)
 
     def set_code(self, code: int) -> None:
         """Set this channel's drive to a DAC code, hard-clamped to MAX_SAFE_CODE."""
-        self._codes[self.channel] = max(0, min(MAX_SAFE_CODE, int(code)))
-        self._flush()
+        self._board.write_channel(self.channel, max(0, min(MAX_SAFE_CODE, int(code))))
 
     def all_off(self) -> None:
         """Drive to code 0 and disengage any current loop."""
-        self._codes[self.channel] = 0
         self._target_current_a = None
         self._loop_engaged = False
         self._integral = 0.0
-        self._flush()
+        self._board.all_off(self.channel)
 
     # -- feedback ----------------------------------------------------------
 
     def read_current_a(self) -> float:
-        return self._ads.read_current_a(sense_resistor_ohm=self._sense_resistor_ohm)
+        return self._board.ads.read_current_a(
+            channel=self.channel, sense_resistor_ohm=self._sense_resistor_ohm
+        )
 
     def read_bridge_temperature_c(self) -> float:
-        return self._ads.read_bridge_temperature_c()
+        return self._board.ads.read_bridge_temperature_c()
 
     # -- closed loop -------------------------------------------------------
 
@@ -258,8 +225,7 @@ class SphereLedSource:
                 # this loop can reach.
                 if new_code in (0, MAX_SAFE_CODE) and self.code == new_code:
                     self._integral -= error * dt
-                self._codes[self.channel] = new_code
-                self._flush()
+                self._board.write_channel(self.channel, new_code)
 
         return LedState(
             code=self.code,
@@ -272,18 +238,15 @@ class SphereLedSource:
     # -- lifecycle ---------------------------------------------------------
 
     def close(self) -> None:
-        """Drive to 0, then release the DAC and any pigpio handle we own."""
+        """Drive to 0. Also releases the shared LedBoard, but only if this
+        instance created it (a board passed in explicitly outlives this
+        object — e.g. a BeaconChannel sharing the same board)."""
         try:
             self.all_off()
         except Exception:
             logger.exception("SphereLedSource: failed to zero the LED channel on close")
-        try:
-            self._dac.close()
-        except Exception:
-            logger.exception("SphereLedSource: failed to close MCP4728")
-        if self._pi is not None and self._owns_pi:
-            self._pi.stop()
-            self._pi = None
+        if self._owns_board:
+            self._board.close()
 
     def __enter__(self) -> SphereLedSource:
         return self

@@ -54,6 +54,29 @@ period_s = 0.05   # 20 Hz tick — each packet logged at its own TX_RATE_HZ
 enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
+[tasks.lighting]
+enabled  = false  # PLACEHOLDER — enable once sphere_dac_code and the real window list are set
+period_s = 0.2    # 5 Hz — tight enough relative to the window durations below
+i2c_dev  = "/dev/i2c-1"
+# sphere_dac_code left unset on purpose: the sphere source will never fire until
+# this is set to a real value (0-1400, clamped by MAX_SAFE_CODE in drivers/sphere_led.py).
+# sphere_dac_code = 1200
+beacon_dac_code = 1500   # PLACEHOLDER — beacon strobe drive level (0-3000, clamped by BEACON_MAX_SAFE_CODE)
+beacon_on_s     = 0.1    # PLACEHOLDER — strobe on-time (s)
+beacon_off_s    = 0.9    # PLACEHOLDER — strobe off-time (s)
+
+# PLACEHOLDER windows — replace with the real GPS-UTC imaging schedule before flight.
+# start_utc is UTC time-of-day "HH:MM:SS"; windows may cross UTC midnight.
+[[tasks.lighting.windows]]
+start_utc  = "14:32:00"
+duration_s = 10.0
+label      = "example_1"
+
+[[tasks.lighting.windows]]
+start_utc  = "14:45:00"
+duration_s = 10.0
+label      = "example_2"
+
 [datalogger]
 log_root = "logs"   # relative to altairfc/; absolute paths also accepted
 

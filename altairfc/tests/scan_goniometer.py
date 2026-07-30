@@ -70,12 +70,13 @@ from drivers.goniometer import (  # noqa: E402
 )
 from drivers.sphere_led import (  # noqa: E402
     HIGH_POWER_CHANNEL,
-    LOW_POWER_CHANNEL,
     MAX_SAFE_CODE,
 )
 from tests.sphere_rig import LED_DARK_LABEL, LED_LIT_LABEL, RigCsvWriter, SphereRig  # noqa: E402
 
-_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL, "low": LOW_POWER_CHANNEL}
+# MCP4728 channel B, previously a second sphere drive stage, now belongs to
+# the external spotter beacon (drivers/beacon_led.py) and is not selectable here.
+_CHANNEL_CHOICES = {"high": HIGH_POWER_CHANNEL}
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--channel", choices=sorted(_CHANNEL_CHOICES), default="high",
-        help="Which drive channel to scan with: high power (MCP4728 A) or low power (MCP4728 B)",
+        help="Which drive channel to scan with (only 'high' / MCP4728 A remains — "
+        "MCP4728 B now belongs to the external spotter beacon)",
     )
     parser.add_argument(
         "--code", type=int, default=700,
