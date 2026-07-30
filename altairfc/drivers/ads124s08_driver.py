@@ -260,6 +260,10 @@ class ads124s08Driver:
         """Switch mux to AIN0 single-ended and take one reading, in volts."""
         return self._read_single_shot_volts()
 
+    def read_raw_code(self) -> int | None:
+        """Take one conversion and return the signed 24-bit ADC code."""
+        return self._read_single_shot_raw()
+
     def read_board_thermistor(
         self, data_rate: DataRate = DataRate.SPS_100
     ) -> ThermistorReading | None:

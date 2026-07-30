@@ -7,7 +7,7 @@ port = "auto"   # "auto": detect CP210x (LR-900p); explicit: "/dev/ttyUSB0"; "no
 baud = 57600
 
 [tasks.mavlink]
-enabled = true
+enabled = false
 period_s = 0.02   # 50 Hz
 
 [tasks.telemetry]
@@ -15,7 +15,7 @@ enabled = true
 period_s = 0.05    # 20 Hz tick — each packet type has its own TX_RATE_HZ set in its class
 
 [tasks.pointing]
-enabled = true
+enabled = false
 period_s = 0.05
 
 [tasks.sphere_pitch]
@@ -23,10 +23,13 @@ enabled = false
 period_s = 1.0
 
 [tasks.photodiode]
-enabled = false
-period_s = 0.05   # nominal 20 Hz complete six-measurement pass
-signal_data_rate = "SPS_1000"
-temperature_data_rate = "SPS_100"
+enabled = true
+period_s = 0.01   # 100 Hz TIA sample pairs
+signal_data_rate = "SPS_800"
+temperature_data_rate = "SPS_2000"
+temperature_period_s = 1.0
+batch_size = 50
+batch_tx_rate_hz = 2.0
 bias_voltage_v = 0.0   # safe default; set the required flight bias before enabling
 
 [tasks.power]
@@ -95,6 +98,14 @@ gps       = false   # GPS must have a valid fix before arming
 log_level = "INFO"
 monitor_interval_s = 5.0
 watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
+
+[profiling]
+# Optional scheduler-task CPU profiler for test runs. When enabled, flight.log
+# shows CPU used by each AltairFC task plus unattributed helper-thread CPU.
+enabled = false
+interval_s = 5.0
+top_n = 5
+minimum_cpu_pct = 1.0
 
 [ground_station]
 use_hardcoded = true   # true: always use lat/lon/alt below; false: use GS GPS command if received

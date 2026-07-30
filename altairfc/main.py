@@ -31,6 +31,7 @@ logger = logging.getLogger("main")
 # ---------------------------------------------------------------------------
 from config.settings import ControllerConfig, GroundStationConfig, SerialPortConfig, SystemConfig
 from core.datastore import DataStore
+from core.photodiode_stream import PhotodiodeSampleBuffer
 from core.lifecycle import install_signal_handlers, shutdown_event
 from core.scheduler import TaskScheduler
 from core.watchdog import WatchdogThread
@@ -102,6 +103,9 @@ def main() -> None:
         setup_logging(config.log_level)
 
     datastore = DataStore()
+    photodiode_sample_buffer = (
+        PhotodiodeSampleBuffer() if config.telemetry is not None else None
+    )
 
     # Write all flight settings to DataStore before tasks start.
     # FlightStageTask, RWTask, and MMTask read these keys each cycle so that
@@ -184,6 +188,15 @@ def main() -> None:
                 period_s=config.tasks["telemetry"].period_s,
                 datastore=datastore,
                 transport=telemetry_transport,
+                photodiode_samples=photodiode_sample_buffer,
+                photodiode_batch_size=int(
+                    config.tasks["photodiode"].extra.get("batch_size", 50)
+                ),
+                photodiode_batch_rate_hz=float(
+                    config.tasks["photodiode"].extra.get(
+                        "batch_tx_rate_hz", 2.0
+                    )
+                ),
             )
         )
         scheduler.register(
@@ -223,13 +236,24 @@ def main() -> None:
             period_s=config.tasks["photodiode"].period_s,
             datastore=datastore,
             signal_data_rate=config.tasks["photodiode"].extra.get(
-                "signal_data_rate", "SPS_1000"
+                "signal_data_rate", "SPS_800"
             ),
             temperature_data_rate=config.tasks["photodiode"].extra.get(
-                "temperature_data_rate", "SPS_100"
+                "temperature_data_rate", "SPS_2000"
+            ),
+            temperature_period_s=float(
+                config.tasks["photodiode"].extra.get(
+                    "temperature_period_s", 1.0
+                )
             ),
             bias_voltage_v=config.tasks["photodiode"].extra.get(
                 "bias_voltage_v", 0.0
+            ),
+            sample_buffer=photodiode_sample_buffer,
+            log_path=(
+                session_dir / "PhotodiodeSamples.csv"
+                if session_dir is not None
+                else None
             ),
         )
     )
