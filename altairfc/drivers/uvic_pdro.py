@@ -269,6 +269,11 @@ class UVICPDRO:
             return None
         return self._get_hardware(readout).adc.read_voltage()
 
+    def read_raw_code(self, readout: Readout) -> int | None:
+        """Take one conversion using the readout's current mux configuration."""
+
+        return self._get_hardware(readout).adc.read_raw_code()
+
     def read_board_thermistor(
         self,
         readout: Readout,

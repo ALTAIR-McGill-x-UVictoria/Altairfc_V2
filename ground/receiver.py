@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import argparse
 import binascii
+import csv
 import logging
 import struct
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 
 import serial
@@ -168,17 +170,44 @@ class VescPacket:
 
 @dataclass
 class PhotodiodePacket:
-    """Packet ID 0x04 — Photodiode interface HAT."""
+    """Packet ID 0x04 — latest PDRO values and temperatures."""
     PACKET_ID:    ClassVar[int]          = 0x04
-    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<ffff")
-    FIELD_NAMES:  ClassVar[tuple]        = ("channel_0", "channel_1",
-                                             "channel_2", "channel_3")
-    UNITS:        ClassVar[tuple]        = ("V", "V", "V", "V")
+    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<ffffff")
+    FIELD_NAMES:  ClassVar[tuple]        = (
+        "sergeant_tia_low_gain",
+        "soldier_tia_low_gain",
+        "sergeant_board_temperature",
+        "soldier_board_temperature",
+        "sergeant_photodiode_temperature",
+        "soldier_photodiode_temperature",
+    )
+    UNITS:        ClassVar[tuple]        = ("V", "V", "C", "C", "C", "C")
 
-    channel_0: float = 0.0
-    channel_1: float = 0.0
-    channel_2: float = 0.0
-    channel_3: float = 0.0
+    sergeant_tia_low_gain: float = 0.0
+    soldier_tia_low_gain: float = 0.0
+    sergeant_board_temperature: float = 0.0
+    soldier_board_temperature: float = 0.0
+    sergeant_photodiode_temperature: float = 0.0
+    soldier_photodiode_temperature: float = 0.0
+
+
+@dataclass(frozen=True)
+class PhotodiodeBatchSample:
+    sequence: int
+    time_unix_us: int
+    valid_flags: int
+    sergeant_code: int
+    soldier_code: int
+
+
+@dataclass(frozen=True)
+class PhotodiodeBatchPacket:
+    """Packet ID 0x0D — 100 SPS raw photodiode sample batch."""
+
+    PACKET_ID: ClassVar[int] = 0x0D
+    sample_period_us: int
+    flags: int
+    samples: tuple[PhotodiodeBatchSample, ...]
 
 
 @dataclass
@@ -255,6 +284,68 @@ _PACKET_REGISTRY: dict[int, type] = {
     cls.PACKET_ID: cls
     for cls in (HeartbeatPacket, AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket, LocalGpsPacket, PointingPacket)
 }
+
+_PHOTODIODE_BATCH_VERSION = 1
+_PHOTODIODE_BATCH_HEADER = struct.Struct("<BBHIQH")
+_PHOTODIODE_BATCH_SAMPLE_SIZE = 7
+_ADC_VREF_V = 2.5
+_ADC_FULL_SCALE_CODE = float(1 << 23)
+
+
+def _unpack_int24(raw: bytes) -> int:
+    value = int.from_bytes(raw, "little")
+    return value - (1 << 24) if value & 0x800000 else value
+
+
+def _code_to_voltage(code: int) -> float:
+    return (float(code) / _ADC_FULL_SCALE_CODE) * _ADC_VREF_V + _ADC_VREF_V
+
+
+def _decode_photodiode_batch(payload: bytes) -> PhotodiodeBatchPacket | None:
+    if len(payload) < _PHOTODIODE_BATCH_HEADER.size:
+        logger.warning("Photodiode batch header is truncated")
+        return None
+
+    version, count, flags, first_seq, first_time_us, period_us = (
+        _PHOTODIODE_BATCH_HEADER.unpack_from(payload)
+    )
+    expected = (
+        _PHOTODIODE_BATCH_HEADER.size
+        + count * _PHOTODIODE_BATCH_SAMPLE_SIZE
+    )
+    if (
+        version != _PHOTODIODE_BATCH_VERSION
+        or count == 0
+        or len(payload) != expected
+    ):
+        logger.warning(
+            "Invalid photodiode batch: version=%d count=%d expected=%d actual=%d",
+            version,
+            count,
+            expected,
+            len(payload),
+        )
+        return None
+
+    samples: list[PhotodiodeBatchSample] = []
+    offset = _PHOTODIODE_BATCH_HEADER.size
+    for index in range(count):
+        samples.append(
+            PhotodiodeBatchSample(
+                sequence=(first_seq + index) & 0xFFFFFFFF,
+                time_unix_us=first_time_us + index * period_us,
+                valid_flags=payload[offset],
+                sergeant_code=_unpack_int24(payload[offset + 1 : offset + 4]),
+                soldier_code=_unpack_int24(payload[offset + 4 : offset + 7]),
+            )
+        )
+        offset += _PHOTODIODE_BATCH_SAMPLE_SIZE
+
+    return PhotodiodeBatchPacket(
+        sample_period_us=period_us,
+        flags=flags,
+        samples=tuple(samples),
+    )
 
 # ---------------------------------------------------------------------------
 # Settings update command (GS→FC)
@@ -375,12 +466,16 @@ def decode_frame(raw: bytes) -> tuple[object, int, float] | None:
         logger.warning("CRC mismatch — frame dropped (PKT_ID=0x%02X SEQ=%d)", pkt_id, seq)
         return None
 
+    payload = raw[HEADER_SIZE : HEADER_SIZE + length]
+    if pkt_id == PhotodiodeBatchPacket.PACKET_ID:
+        packet = _decode_photodiode_batch(payload)
+        return None if packet is None else (packet, seq, timestamp)
+
     pkt_class = _PACKET_REGISTRY.get(pkt_id)
     if pkt_class is None:
         logger.warning("Unknown packet ID 0x%02X — skipping", pkt_id)
         return None
 
-    payload = raw[HEADER_SIZE : HEADER_SIZE + length]
     if len(payload) != pkt_class.STRUCT_FMT.size:
         logger.warning(
             "Payload size mismatch for 0x%02X: expected %d got %d",
@@ -394,6 +489,20 @@ def decode_frame(raw: bytes) -> tuple[object, int, float] | None:
 
 
 def _print_packet(packet: object, seq: int, timestamp: float) -> None:
+    if isinstance(packet, PhotodiodeBatchPacket):
+        first = packet.samples[0]
+        last = packet.samples[-1]
+        logger.info(
+            "[PhotodiodeBatch] frame_seq=%d samples=%d sample_seq=%d..%d "
+            "period=%d us",
+            seq,
+            len(packet.samples),
+            first.sequence,
+            last.sequence,
+            packet.sample_period_us,
+        )
+        return
+
     cls = type(packet)
     name = cls.__name__.replace("Packet", "")
 
@@ -416,21 +525,51 @@ class FrameReader:
     frame before handing it to decode_frame().
     """
 
-    def __init__(self, port: serial.Serial) -> None:
+    def __init__(
+        self,
+        port: serial.Serial,
+        photodiode_csv: Path | None = None,
+    ) -> None:
         self._port = port
         self._buf = bytearray()
         self._seq_prev: dict[int, int] = {}
         self._frames_received = 0
         self._frames_dropped  = 0
+        self._photodiode_sample_prev: int | None = None
+        self._photodiode_file = None
+        self._photodiode_writer = None
+        if photodiode_csv is not None:
+            photodiode_csv.parent.mkdir(parents=True, exist_ok=True)
+            self._photodiode_file = open(
+                photodiode_csv, "w", newline="", buffering=64 * 1024
+            )
+            self._photodiode_writer = csv.writer(self._photodiode_file)
+            self._photodiode_writer.writerow(
+                [
+                    "sequence",
+                    "time_unix_us",
+                    "valid_flags",
+                    "sergeant_code",
+                    "soldier_code",
+                    "sergeant_voltage_v",
+                    "soldier_voltage_v",
+                ]
+            )
+            logger.info("Writing photodiode samples to %s", photodiode_csv)
 
     def run(self) -> None:
         logger.info("Listening for telemetry frames on %s...", self._port.name)
-        while True:
-            chunk = self._port.read(256)
-            if not chunk:
-                continue
-            self._buf.extend(chunk)
-            self._process_buffer()
+        try:
+            while True:
+                chunk = self._port.read(256)
+                if not chunk:
+                    continue
+                self._buf.extend(chunk)
+                self._process_buffer()
+        finally:
+            if self._photodiode_file is not None:
+                self._photodiode_file.flush()
+                self._photodiode_file.close()
 
     def _process_buffer(self) -> None:
         while len(self._buf) >= MIN_FRAME:
@@ -465,7 +604,49 @@ class FrameReader:
             packet, seq, timestamp = result
             self._frames_received += 1
             self._check_seq(type(packet).PACKET_ID, seq)
+            if isinstance(packet, PhotodiodeBatchPacket):
+                self._record_photodiode_batch(packet)
             _print_packet(packet, seq, timestamp)
+
+    def _record_photodiode_batch(
+        self, packet: PhotodiodeBatchPacket
+    ) -> None:
+        for sample in packet.samples:
+            if self._photodiode_sample_prev is not None:
+                expected = (self._photodiode_sample_prev + 1) & 0xFFFFFFFF
+                if sample.sequence != expected:
+                    dropped = (sample.sequence - expected) & 0xFFFFFFFF
+                    logger.warning(
+                        "Photodiode sample gap: expected %d got %d "
+                        "(%d sample(s) missing)",
+                        expected,
+                        sample.sequence,
+                        dropped,
+                    )
+            self._photodiode_sample_prev = sample.sequence
+
+            if self._photodiode_writer is not None:
+                self._photodiode_writer.writerow(
+                    [
+                        sample.sequence,
+                        sample.time_unix_us,
+                        sample.valid_flags,
+                        sample.sergeant_code,
+                        sample.soldier_code,
+                        (
+                            _code_to_voltage(sample.sergeant_code)
+                            if sample.valid_flags & 0x01
+                            else ""
+                        ),
+                        (
+                            _code_to_voltage(sample.soldier_code)
+                            if sample.valid_flags & 0x02
+                            else ""
+                        ),
+                    ]
+                )
+        if self._photodiode_file is not None:
+            self._photodiode_file.flush()
 
     def _check_seq(self, pkt_id: int, seq: int) -> None:
         prev = self._seq_prev.get(pkt_id)
@@ -489,6 +670,11 @@ def main() -> None:
     parser.add_argument("--port",  default="auto", help="COM port (default: auto-detect CP210x)")
     parser.add_argument("--baud",  type=int, default=57600, help="Baud rate (default: 57600)")
     parser.add_argument("--debug", action="store_true",     help="Enable DEBUG logging")
+    parser.add_argument(
+        "--photodiode-csv",
+        default="photodiode_samples.csv",
+        help="Photodiode sample output CSV, or 'none' to disable",
+    )
     args = parser.parse_args()
 
     _setup_logging("DEBUG" if args.debug else "INFO")
@@ -511,7 +697,12 @@ def main() -> None:
     logger.info("Opened %s @ %d baud", port, args.baud)
 
     try:
-        FrameReader(ser).run()
+        photodiode_csv = (
+            None
+            if args.photodiode_csv.lower() == "none"
+            else Path(args.photodiode_csv)
+        )
+        FrameReader(ser, photodiode_csv=photodiode_csv).run()
     except KeyboardInterrupt:
         logger.info("Interrupted — closing port")
     finally:

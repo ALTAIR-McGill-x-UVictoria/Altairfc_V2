@@ -37,14 +37,20 @@ class PacketSerializer:
         if registry is None:
             registry = packet_registry
         pkt_type = type(packet)
-        packet_id = registry.get_id(pkt_type)
-        pkt_struct = registry.get_struct(pkt_type)
+        custom_packer = getattr(packet, "pack_payload", None)
+        custom_packet_id = getattr(pkt_type, "PACKET_ID", None)
+        if callable(custom_packer) and custom_packet_id is not None:
+            packet_id = int(custom_packet_id)
+            payload = bytes(custom_packer())
+        else:
+            packet_id = registry.get_id(pkt_type)
+            pkt_struct = registry.get_struct(pkt_type)
 
-        if packet_id is None or pkt_struct is None:
-            raise ValueError(f"Packet type {pkt_type.__name__} is not registered")
+            if packet_id is None or pkt_struct is None:
+                raise ValueError(f"Packet type {pkt_type.__name__} is not registered")
 
-        field_values = [getattr(packet, f.name) for f in dataclasses.fields(packet)]
-        payload = pkt_struct.pack(*field_values)
+            field_values = [getattr(packet, f.name) for f in dataclasses.fields(packet)]
+            payload = pkt_struct.pack(*field_values)
 
         timestamp = time.time()
         header_body = _HEADER_STRUCT.pack(
