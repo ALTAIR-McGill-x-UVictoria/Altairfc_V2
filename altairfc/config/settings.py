@@ -128,6 +128,16 @@ class GroundStationConfig:
 
 
 @dataclass
+class ProfilingConfig:
+    """Optional periodic CPU usage reporting for test runs."""
+
+    enabled: bool = False
+    interval_s: float = 5.0
+    top_n: int = 5
+    minimum_cpu_pct: float = 1.0
+
+
+@dataclass
 class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig | None
@@ -140,6 +150,7 @@ class SystemConfig:
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
     )
     radio_config: RadioConfig = field(default_factory=RadioConfig)
+    profiling: ProfilingConfig = field(default_factory=ProfilingConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
     watchdog_sec: float = 30.0
@@ -236,6 +247,14 @@ class SystemConfig:
             rate_scale=rc_raw.get("rate_scale",         [0.1, 0.33, 1.0]),
         )
 
+        profiling_raw = data.get("profiling", {})
+        profiling = ProfilingConfig(
+            enabled=profiling_raw.get("enabled", False),
+            interval_s=profiling_raw.get("interval_s", 5.0),
+            top_n=profiling_raw.get("top_n", 5),
+            minimum_cpu_pct=profiling_raw.get("minimum_cpu_pct", 1.0),
+        )
+
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
@@ -246,6 +265,7 @@ class SystemConfig:
             pointing=pointing,
             ground_station=ground_station,
             radio_config=radio_config,
+            profiling=profiling,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s"),
             watchdog_sec=system.get("watchdog_sec"),

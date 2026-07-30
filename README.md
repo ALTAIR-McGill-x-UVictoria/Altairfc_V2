@@ -28,3 +28,11 @@ sudo systemctl stop flight      -- stop now
 sudo systemctl status flight    -- check state + recent logs
 journalctl -u flight -f         -- tail logs
 ```
+
+## Optional CPU profiling
+
+For test runs, set `enabled = true` in the `[profiling]` section of
+`altairfc/config/settings.toml`. The flight log will periodically report total
+CPU usage and the configured number of highest-CPU Linux processes, including
+their PIDs. Profiling is disabled by default and starts no background thread
+until enabled.
