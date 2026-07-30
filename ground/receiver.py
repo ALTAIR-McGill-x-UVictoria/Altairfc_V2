@@ -279,10 +279,24 @@ class PointingPacket:
     heading:       float = 0.0
 
 
+@dataclass
+class LightingPacket:
+    """Packet ID 0x0B — sphere source / spotter beacon interlock state."""
+    PACKET_ID:    ClassVar[int]          = 0x0B
+    STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<BBBf")
+    FIELD_NAMES:  ClassVar[tuple]        = ("sphere_on", "beacon_on", "window_active", "next_window_in_s")
+    UNITS:        ClassVar[tuple]        = ("", "", "", "s")
+
+    sphere_on:        int   = 0
+    beacon_on:        int   = 0
+    window_active:    int   = 0
+    next_window_in_s: float = 0.0
+
+
 # Registry: packet_id -> class
 _PACKET_REGISTRY: dict[int, type] = {
     cls.PACKET_ID: cls
-    for cls in (HeartbeatPacket, AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket, LocalGpsPacket, PointingPacket)
+    for cls in (HeartbeatPacket, AttitudePacket, PowerPacket, VescPacket, PhotodiodePacket, FlightSettingsPacket, LocalGpsPacket, PointingPacket, LightingPacket)
 }
 
 _PHOTODIODE_BATCH_VERSION = 1

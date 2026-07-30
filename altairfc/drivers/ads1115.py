@@ -9,14 +9,14 @@ goniometer rig uses.
 
 Wiring on this board, which constrains what can be measured:
 
-    AIN0        single-ended  LED drive current across a 2.2 ohm sense resistor
-    AIN1        single-ended  free
+    AIN0        single-ended  MCP4728 channel 0 (sphere source) drive current,
+                              across a 2.2 ohm sense resistor
+    AIN1        single-ended  MCP4728 channel 1 (external spotter beacon) drive
+                              current, across its own 2.2 ohm sense resistor
     AIN2-AIN3   differential  NTC thermistor Wheatstone bridge
 
 AIN2 and AIN3 are therefore *not* usable single-ended — reading either alone
-returns a bridge node voltage, not an independent signal.  Only AIN1 is
-uncommitted, so at most one LED channel's drive voltage can be monitored
-directly.
+returns a bridge node voltage, not an independent signal.
 """
 
 from __future__ import annotations
@@ -147,6 +147,11 @@ class Ads1115:
         vdiff = self.read_volts(MUX_DIFF_2_3, gain=gain)
         return resistance_to_celsius(bridge_volts_to_resistance(vdiff))
 
-    def read_current_a(self, sense_resistor_ohm: float = SENSE_RESISTOR_OHM, gain: int = 2) -> float:
-        """Read the LED drive current from the AIN0 sense resistor, in amps."""
-        return self.read_single_ended(0, gain=gain) / sense_resistor_ohm
+    def read_current_a(
+        self, channel: int = 0, sense_resistor_ohm: float = SENSE_RESISTOR_OHM, gain: int = 2
+    ) -> float:
+        """Read an LED channel's drive current from its AIN<channel> sense resistor, in amps.
+
+        channel 0 = sphere source (MCP4728 A), channel 1 = spotter beacon (MCP4728 B).
+        """
+        return self.read_single_ended(channel, gain=gain) / sense_resistor_ohm
