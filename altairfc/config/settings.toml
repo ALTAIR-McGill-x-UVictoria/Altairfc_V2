@@ -7,7 +7,7 @@ port = "auto"   # "auto": detect CP210x (LR-900p); explicit: "/dev/ttyUSB0"; "no
 baud = 57600
 
 [tasks.mavlink]
-enabled = true
+enabled = false
 period_s = 0.02   # 50 Hz
 
 [tasks.telemetry]
@@ -15,7 +15,7 @@ enabled = true
 period_s = 0.05    # 20 Hz tick — each packet type has its own TX_RATE_HZ set in its class
 
 [tasks.pointing]
-enabled = true
+enabled = false
 period_s = 0.05
 
 [tasks.sphere_pitch]
@@ -25,8 +25,8 @@ period_s = 1.0
 [tasks.photodiode]
 enabled = true
 period_s = 0.01   # 100 Hz TIA sample pairs
-signal_data_rate = "SPS_400"
-temperature_data_rate = "SPS_1000"
+signal_data_rate = "SPS_800"
+temperature_data_rate = "SPS_2000"
 temperature_period_s = 1.0
 batch_size = 50
 batch_tx_rate_hz = 2.0

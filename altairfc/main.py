@@ -237,10 +237,10 @@ def main() -> None:
             period_s=config.tasks["photodiode"].period_s,
             datastore=datastore,
             signal_data_rate=config.tasks["photodiode"].extra.get(
-                "signal_data_rate", "SPS_400"
+                "signal_data_rate", "SPS_800"
             ),
             temperature_data_rate=config.tasks["photodiode"].extra.get(
-                "temperature_data_rate", "SPS_1000"
+                "temperature_data_rate", "SPS_2000"
             ),
             temperature_period_s=float(
                 config.tasks["photodiode"].extra.get(
