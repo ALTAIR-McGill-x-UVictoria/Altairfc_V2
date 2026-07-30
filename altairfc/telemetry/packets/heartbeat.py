@@ -83,11 +83,11 @@ _BOOT_MONOTONIC: float = time.monotonic()
 
 def read_cpu_load() -> float:
     """
-    Returns the 1-minute load average as a percentage of one CPU core.
+    Returns the 1-minute load average
     Falls back to 0.0 on platforms without os.getloadavg() (e.g. Windows).
     """
     try:
-        load1, _, _ = os.getloadavg()
+        load1, _, _ = os.getloadavg()/4
         return float(load1) * 100.0
     except (AttributeError, OSError):
         return 0.0
