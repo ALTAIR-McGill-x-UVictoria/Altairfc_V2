@@ -100,8 +100,8 @@ monitor_interval_s = 5.0
 watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
 
 [profiling]
-# Optional Linux /proc sampler for test runs. When enabled, flight.log shows
-# total CPU usage and the top CPU-consuming PIDs at each interval.
+# Optional scheduler-task CPU profiler for test runs. When enabled, flight.log
+# shows CPU used by each AltairFC task plus unattributed helper-thread CPU.
 enabled = false
 interval_s = 5.0
 top_n = 5

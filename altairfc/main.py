@@ -30,7 +30,6 @@ logger = logging.getLogger("main")
 # Project imports
 # ---------------------------------------------------------------------------
 from config.settings import ControllerConfig, GroundStationConfig, SerialPortConfig, SystemConfig
-from core.cpu_profiler import CpuProfiler
 from core.datastore import DataStore
 from core.photodiode_stream import PhotodiodeSampleBuffer
 from core.lifecycle import install_signal_handlers, shutdown_event
@@ -286,10 +285,6 @@ def main() -> None:
     scheduler.start_all()
     buzzer.play(TUNE_SUCCESS)
 
-    cpu_profiler = CpuProfiler(config.profiling) if config.profiling.enabled else None
-    if cpu_profiler is not None:
-        cpu_profiler.start()
-
     watchdog = WatchdogThread(scheduler, watchdog_sec=config.watchdog_sec)
     watchdog.start()
 
@@ -298,8 +293,6 @@ def main() -> None:
     logger.info("Shutdown event received — stopping all tasks")
     buzzer.play(TUNE_SUCCESS_REVERSE)
     watchdog.stop()
-    if cpu_profiler is not None:
-        cpu_profiler.stop()
     scheduler.stop_all()
     buzzer.stop()
     logger.info("ALTAIR V2 shutdown complete")

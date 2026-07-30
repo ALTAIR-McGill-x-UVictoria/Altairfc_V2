@@ -32,7 +32,8 @@ journalctl -u flight -f         -- tail logs
 ## Optional CPU profiling
 
 For test runs, set `enabled = true` in the `[profiling]` section of
-`altairfc/config/settings.toml`. The flight log will periodically report total
-CPU usage and the configured number of highest-CPU Linux processes, including
-their PIDs. Profiling is disabled by default and starts no background thread
-until enabled.
+`altairfc/config/settings.toml`. The flight log will periodically report CPU
+used by the highest-load AltairFC scheduler tasks, along with execution counts
+and average/maximum execution time. CPU used by transport, watchdog, buzzer,
+and other helper threads is reported separately. Profiling is disabled by
+default and starts no background thread until enabled.

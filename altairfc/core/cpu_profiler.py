@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from config.settings import ProfilingConfig
 
@@ -13,34 +11,45 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class ProcessCpu:
-    pid: int
-    command: str
+class TaskCpuSample:
+    name: str
     cpu_pct: float
+    calls: int
+    average_wall_ms: float
+    maximum_wall_ms: float
 
 
 @dataclass(frozen=True)
-class _Snapshot:
-    monotonic_s: float
-    total_ticks: int
-    busy_ticks: int
-    processes: dict[int, tuple[int, str]]
+class ProfileReport:
+    interval_s: float
+    altairfc_cpu_pct: float
+    task_cpu_pct: float
+    other_threads_cpu_pct: float
+    tasks: list[TaskCpuSample]
 
 
-class CpuProfiler:
+@dataclass
+class _TaskTotals:
+    cpu_s: float = 0.0
+    wall_s: float = 0.0
+    calls: int = 0
+    maximum_wall_s: float = 0.0
+
+
+class TaskCpuProfiler:
     """
-    Periodically reports the processes consuming the most CPU.
+    Attributes AltairFC CPU time to scheduler tasks.
 
-    Linux CPU counters are sampled from /proc, so this adds no third-party
-    dependency. Process percentages are expressed relative to one CPU core:
-    a multi-threaded process can therefore exceed 100%.
+    BaseTask measures each execute() call with time.thread_time(), which counts
+    CPU used by only that task's thread. Overall process CPU comes from
+    time.process_time(); the difference is reported as "other threads" and
+    covers transport, telemetry-stat, buzzer, watchdog, and similar helpers.
+
+    Percentages are relative to one CPU core, so the AltairFC process can
+    exceed 100% when multiple threads are executing concurrently.
     """
 
-    def __init__(
-        self,
-        config: ProfilingConfig,
-        proc_root: Path = Path("/proc"),
-    ) -> None:
+    def __init__(self, config: ProfilingConfig) -> None:
         if config.interval_s <= 0:
             raise ValueError("profiling.interval_s must be greater than zero")
         if config.top_n <= 0:
@@ -49,34 +58,23 @@ class CpuProfiler:
             raise ValueError("profiling.minimum_cpu_pct cannot be negative")
 
         self._config = config
-        self._proc_root = proc_root
-        try:
-            self._clock_ticks = os.sysconf("SC_CLK_TCK")
-        except (AttributeError, ValueError):
-            # Only used with Linux /proc; this keeps construction testable on
-            # development hosts where sysconf is not exposed.
-            self._clock_ticks = 100
+        self._totals: dict[str, _TaskTotals] = {}
+        self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        if not (self._proc_root / "stat").is_file():
-            logger.warning(
-                "CPU profiler requires Linux /proc; profiling is unavailable"
-            )
-            return
-
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run,
-            name="cpu-profiler",
+            name="task-cpu-profiler",
             daemon=True,
         )
         self._thread.start()
         logger.info(
-            "CPU profiler started (interval=%.1fs, top_n=%d)",
+            "Task CPU profiler started (interval=%.1fs, top_n=%d)",
             self._config.interval_s,
             self._config.top_n,
         )
@@ -85,114 +83,91 @@ class CpuProfiler:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout_s)
-        logger.info("CPU profiler stopped")
+        logger.info("Task CPU profiler stopped")
+
+    def record_execution(self, task_name: str, cpu_s: float, wall_s: float) -> None:
+        """Record one completed BaseTask.execute() call."""
+        with self._lock:
+            totals = self._totals.setdefault(task_name, _TaskTotals())
+            totals.cpu_s += max(cpu_s, 0.0)
+            totals.wall_s += max(wall_s, 0.0)
+            totals.calls += 1
+            totals.maximum_wall_s = max(totals.maximum_wall_s, wall_s)
 
     def _run(self) -> None:
-        previous = self._snapshot()
+        previous_wall_s = time.monotonic()
+        previous_process_cpu_s = time.process_time()
+
         while not self._stop_event.wait(self._config.interval_s):
-            current = self._snapshot()
-            system_cpu, processes = self._calculate_usage(previous, current)
-            previous = current
+            with self._lock:
+                now_wall_s = time.monotonic()
+                now_process_cpu_s = time.process_time()
+                totals = self._totals
+                self._totals = {}
 
-            visible = [
-                process
-                for process in processes
-                if process.cpu_pct >= self._config.minimum_cpu_pct
-            ][: self._config.top_n]
-            process_text = ", ".join(
-                f"{process.command}[{process.pid}]={process.cpu_pct:.1f}%"
-                for process in visible
+            report = self._build_report(
+                interval_s=now_wall_s - previous_wall_s,
+                process_cpu_s=now_process_cpu_s - previous_process_cpu_s,
+                totals=totals,
             )
-            logger.info(
-                "CPU profile: system=%.1f%%; top processes: %s",
-                system_cpu,
-                process_text or "none above threshold",
+            previous_wall_s = now_wall_s
+            previous_process_cpu_s = now_process_cpu_s
+            self._log_report(report)
+
+    def _build_report(
+        self,
+        interval_s: float,
+        process_cpu_s: float,
+        totals: dict[str, _TaskTotals],
+    ) -> ProfileReport:
+        if interval_s <= 0:
+            return ProfileReport(0.0, 0.0, 0.0, 0.0, [])
+
+        task_cpu_s = sum(item.cpu_s for item in totals.values())
+        samples = [
+            TaskCpuSample(
+                name=name,
+                cpu_pct=item.cpu_s / interval_s * 100.0,
+                calls=item.calls,
+                average_wall_ms=(
+                    item.wall_s / item.calls * 1000.0 if item.calls else 0.0
+                ),
+                maximum_wall_ms=item.maximum_wall_s * 1000.0,
             )
+            for name, item in totals.items()
+        ]
+        samples.sort(key=lambda item: item.cpu_pct, reverse=True)
+        visible = [
+            item
+            for item in samples
+            if item.cpu_pct >= self._config.minimum_cpu_pct
+        ][: self._config.top_n]
 
-    def _snapshot(self) -> _Snapshot:
-        total_ticks, busy_ticks = self._read_system_ticks()
-        processes: dict[int, tuple[int, str]] = {}
-
-        try:
-            entries = list(self._proc_root.iterdir())
-        except OSError:
-            entries = []
-
-        for entry in entries:
-            if not entry.name.isdigit():
-                continue
-            try:
-                ticks, command = self._read_process(entry)
-            except (OSError, ValueError, IndexError):
-                # Processes may exit or become inaccessible during a scan.
-                continue
-            processes[int(entry.name)] = (ticks, command)
-
-        return _Snapshot(
-            monotonic_s=time.monotonic(),
-            total_ticks=total_ticks,
-            busy_ticks=busy_ticks,
-            processes=processes,
+        altairfc_cpu_pct = max(process_cpu_s, 0.0) / interval_s * 100.0
+        task_cpu_pct = task_cpu_s / interval_s * 100.0
+        return ProfileReport(
+            interval_s=interval_s,
+            altairfc_cpu_pct=altairfc_cpu_pct,
+            task_cpu_pct=task_cpu_pct,
+            other_threads_cpu_pct=max(altairfc_cpu_pct - task_cpu_pct, 0.0),
+            tasks=visible,
         )
-
-    def _read_system_ticks(self) -> tuple[int, int]:
-        fields = (self._proc_root / "stat").read_text().splitlines()[0].split()
-        if not fields or fields[0] != "cpu":
-            raise ValueError("invalid /proc/stat CPU row")
-        # guest and guest_nice (fields 9 and 10) are already included in user
-        # and nice, so omit them rather than double-counting CPU time.
-        counters = [int(value) for value in fields[1:9]]
-        total = sum(counters)
-        idle = counters[3] + (counters[4] if len(counters) > 4 else 0)
-        return total, total - idle
 
     @staticmethod
-    def _read_process(process_dir: Path) -> tuple[int, str]:
-        stat = (process_dir / "stat").read_text()
-        command_end = stat.rfind(")")
-        if command_end < 0:
-            raise ValueError("invalid process stat")
-
-        command = stat[stat.find("(") + 1 : command_end]
-        # Fields after the command begin with field 3 (state). utime and stime
-        # are fields 14 and 15, hence indexes 11 and 12 in this slice.
-        fields = stat[command_end + 2 :].split()
-        ticks = int(fields[11]) + int(fields[12])
-        return ticks, command
-
-    def _calculate_usage(
-        self,
-        previous: _Snapshot,
-        current: _Snapshot,
-    ) -> tuple[float, list[ProcessCpu]]:
-        elapsed_s = current.monotonic_s - previous.monotonic_s
-        if elapsed_s <= 0:
-            return 0.0, []
-
-        total_delta = current.total_ticks - previous.total_ticks
-        busy_delta = current.busy_ticks - previous.busy_ticks
-        system_cpu = (
-            max(0.0, min(100.0, busy_delta / total_delta * 100.0))
-            if total_delta > 0
-            else 0.0
-        )
-
-        usage: list[ProcessCpu] = []
-        for pid, (ticks, command) in current.processes.items():
-            old = previous.processes.get(pid)
-            if old is None or old[1] != command:
-                # The PID is new or was reused by a different command.
-                continue
-            tick_delta = ticks - old[0]
-            if tick_delta < 0:
-                continue
-            usage.append(
-                ProcessCpu(
-                    pid=pid,
-                    command=command,
-                    cpu_pct=tick_delta / self._clock_ticks / elapsed_s * 100.0,
-                )
+    def _log_report(report: ProfileReport) -> None:
+        task_text = ", ".join(
+            (
+                f"{task.name}={task.cpu_pct:.1f}% "
+                f"({task.calls} calls, avg={task.average_wall_ms:.2f}ms, "
+                f"max={task.maximum_wall_ms:.2f}ms)"
             )
-
-        usage.sort(key=lambda process: process.cpu_pct, reverse=True)
-        return system_cpu, usage
+            for task in report.tasks
+        )
+        logger.info(
+            "Task CPU profile: altairfc=%.1f%%, scheduled_tasks=%.1f%%, "
+            "other_threads=%.1f%%; tasks: %s",
+            report.altairfc_cpu_pct,
+            report.task_cpu_pct,
+            report.other_threads_cpu_pct,
+            task_text or "none above threshold",
+        )

@@ -5,8 +5,12 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from core.datastore import DataStore
+
+if TYPE_CHECKING:
+    from core.cpu_profiler import TaskCpuProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,7 @@ class BaseTask(ABC):
         self.state = TaskState.IDLE
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._cpu_profiler: TaskCpuProfiler | None = None
 
     @abstractmethod
     def setup(self) -> None:
@@ -84,6 +89,27 @@ class BaseTask(ABC):
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def set_cpu_profiler(self, profiler: TaskCpuProfiler) -> None:
+        """Attach the optional scheduler-owned CPU profiler."""
+        self._cpu_profiler = profiler
+
+    def _execute_once(self) -> None:
+        profiler = self._cpu_profiler
+        if profiler is None:
+            self.execute()
+            return
+
+        wall_start = time.monotonic()
+        cpu_start = time.thread_time()
+        try:
+            self.execute()
+        finally:
+            profiler.record_execution(
+                self.name,
+                cpu_s=time.thread_time() - cpu_start,
+                wall_s=time.monotonic() - wall_start,
+            )
+
     def _run_loop(self) -> None:
         backoff = _RESTART_BACKOFF_BASE
 
@@ -111,7 +137,7 @@ class BaseTask(ABC):
             while not self._stop_event.is_set():
                 deadline = time.monotonic() + self.period_s
                 try:
-                    self.execute()
+                    self._execute_once()
                 except Exception:
                     logger.exception("Task %s raised in execute()", self.name)
                     failed = True
