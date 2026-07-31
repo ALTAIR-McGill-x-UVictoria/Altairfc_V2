@@ -6,12 +6,12 @@ from typing import ClassVar
 from telemetry.registry import FieldMeta, packet_registry
 
 
-@packet_registry.register(packet_id=0x0B)
+@packet_registry.register(packet_id=0x0E)
 @dataclass
 class LightingPacket:
     """
     Sphere source / spotter beacon interlock state.
-    Packet ID: 0x0B
+    Packet ID: 0x0E
     Source: LightingTask -> DataStore "lighting.*" keys
     """
 

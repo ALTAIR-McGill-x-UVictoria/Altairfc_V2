@@ -281,8 +281,8 @@ class PointingPacket:
 
 @dataclass
 class LightingPacket:
-    """Packet ID 0x0B — sphere source / spotter beacon interlock state."""
-    PACKET_ID:    ClassVar[int]          = 0x0B
+    """Packet ID 0x0E — sphere source / spotter beacon interlock state."""
+    PACKET_ID:    ClassVar[int]          = 0x0E
     STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<BBBf")
     FIELD_NAMES:  ClassVar[tuple]        = ("sphere_on", "beacon_on", "window_active", "next_window_in_s")
     UNITS:        ClassVar[tuple]        = ("", "", "", "s")
