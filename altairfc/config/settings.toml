@@ -7,7 +7,7 @@ port = "auto"   # "auto": detect CP210x (LR-900p); explicit: "/dev/ttyUSB0"; "no
 baud = 57600
 
 [tasks.mavlink]
-enabled = false
+enabled = true
 period_s = 0.02   # 50 Hz
 
 [tasks.telemetry]
