@@ -45,6 +45,36 @@ def test_seconds_to_window_midnight_wraparound():
     assert seconds_to_window(86000.0, w) == pytest.approx(395.0)
 
 
+def test_window_active_recurring_period():
+    """period_s=60 recurs every minute: on for the first 30s, off for the last 30s."""
+    w = ImagingWindow(start_s=0.0, duration_s=30.0, period_s=60.0)
+    assert window_active(0.0, w)
+    assert window_active(29.9, w)
+    assert not window_active(30.0, w)
+    assert not window_active(59.9, w)
+    assert window_active(60.0, w)      # wraps to the next minute
+    assert window_active(125.0, w)     # 2nd minute, 5s in
+
+
+def test_seconds_to_window_recurring_period():
+    w = ImagingWindow(start_s=0.0, duration_s=30.0, period_s=60.0)
+    assert seconds_to_window(30.0, w) == pytest.approx(30.0)
+    assert seconds_to_window(45.0, w) == pytest.approx(15.0)
+    assert seconds_to_window(0.0, w) == 0.0
+
+
+def test_parse_windows_period_s():
+    raw = [{"start_utc": "00:00:00", "duration_s": 30.0, "period_s": 60.0, "label": "per_minute"}]
+    windows = parse_windows(raw)
+    assert windows[0].period_s == 60.0
+
+
+def test_parse_windows_default_period_is_one_day():
+    raw = [{"start_utc": "00:00:00", "duration_s": 1.0}]
+    windows = parse_windows(raw)
+    assert windows[0].period_s == 86400.0
+
+
 def test_parse_windows():
     raw = [{"start_utc": "01:02:03", "duration_s": 5.0, "label": "a"}]
     windows = parse_windows(raw)
@@ -72,15 +102,22 @@ class _FakeInterlockedPair:
 
 
 class _FakeSphere:
+    """Mimics SphereLedSource's hold_current()/update() current-loop interface."""
+
     def __init__(self, pair: _FakeInterlockedPair) -> None:
         self._pair = pair
+        self.target_current_a: float | None = None
 
-    def set_code(self, code: int) -> None:
+    def hold_current(self, target_a: float) -> None:
+        self.target_current_a = target_a
+
+    def update(self) -> None:
         if self._pair.beacon_code > 0:
             raise InterlockViolation("beacon on")
-        self._pair.sphere_code = code
+        self._pair.sphere_code = 1   # stand-in for "DAC is now driving toward target"
 
     def all_off(self) -> None:
+        self.target_current_a = None
         self._pair.sphere_code = 0
 
 
@@ -107,19 +144,20 @@ def _make_task(**kwargs) -> tuple[LightingTask, _FakeInterlockedPair]:
 
 
 def test_apply_turns_sphere_on_and_forces_beacon_off_during_window():
-    task, pair = _make_task(sphere_dac_code=1000, beacon_dac_code=777)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
 
     task._apply(w)
 
     assert task._sphere_on is True
     assert task._beacon_on is False
-    assert pair.sphere_code == 1000
+    assert task._sphere.target_current_a == pytest.approx(0.2657)
+    assert pair.sphere_code != 0
     assert pair.beacon_code == 0
 
 
 def test_apply_resumes_beacon_strobe_outside_window():
-    task, pair = _make_task(sphere_dac_code=1000, beacon_dac_code=777)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
     task._apply(None)
 
@@ -128,9 +166,9 @@ def test_apply_resumes_beacon_strobe_outside_window():
     assert pair.beacon_code == 777
 
 
-def test_apply_leaves_sphere_off_when_no_dac_code_configured():
-    """Per project decision: an unconfigured sphere_dac_code must never guess a value."""
-    task, pair = _make_task(sphere_dac_code=None, beacon_dac_code=777)
+def test_apply_leaves_sphere_off_when_no_target_current_configured():
+    """Per project decision: an unconfigured sphere_target_current_a must never guess a value."""
+    task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
     w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
 
     task._apply(w)
@@ -141,7 +179,7 @@ def test_apply_leaves_sphere_off_when_no_dac_code_configured():
 
 
 def test_apply_turns_sphere_off_when_window_ends():
-    task, pair = _make_task(sphere_dac_code=1000)
+    task, pair = _make_task(sphere_target_current_a=0.2657)
     w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
 
     task._apply(w)

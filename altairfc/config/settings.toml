@@ -58,27 +58,23 @@ enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
 [tasks.lighting]
-enabled  = false  # PLACEHOLDER — enable once sphere_dac_code and the real window list are set
+enabled  = false  # PLACEHOLDER — enable once the real window list is confirmed
 period_s = 0.2    # 5 Hz — tight enough relative to the window durations below
 i2c_dev  = "/dev/i2c-1"
-# sphere_dac_code left unset on purpose: the sphere source will never fire until
-# this is set to a real value (0-1400, clamped by MAX_SAFE_CODE in drivers/sphere_led.py).
-# sphere_dac_code = 1200
+sphere_target_current_a = 0.2657   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
 beacon_dac_code = 1500   # PLACEHOLDER — beacon strobe drive level (0-3000, clamped by BEACON_MAX_SAFE_CODE)
 beacon_on_s     = 0.1    # PLACEHOLDER — strobe on-time (s)
 beacon_off_s    = 0.9    # PLACEHOLDER — strobe off-time (s)
 
-# PLACEHOLDER windows — replace with the real GPS-UTC imaging schedule before flight.
-# start_utc is UTC time-of-day "HH:MM:SS"; windows may cross UTC midnight.
+# start_utc is UTC (system-clock) time-of-day "HH:MM:SS"; windows may cross UTC midnight.
+# period_s makes a window recur (default: one day, i.e. a single daily window).
+# Sphere source on for the first 30s of every system-time minute; beacon strobes
+# the other 30s (handled automatically by LightingTask when no window is active).
 [[tasks.lighting.windows]]
-start_utc  = "14:32:00"
-duration_s = 10.0
-label      = "example_1"
-
-[[tasks.lighting.windows]]
-start_utc  = "14:45:00"
-duration_s = 10.0
-label      = "example_2"
+start_utc  = "00:00:00"
+duration_s = 30.0
+period_s   = 60.0
+label      = "per_minute"
 
 [datalogger]
 log_root = "logs"   # relative to altairfc/; absolute paths also accepted
