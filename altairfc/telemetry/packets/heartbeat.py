@@ -87,8 +87,9 @@ def read_cpu_load() -> float:
     Falls back to 0.0 on platforms without os.getloadavg() (e.g. Windows).
     """
     try:
-        load1, _, _ = os.getloadavg()/4
-        return float(load1) * 100.0
+        load1, _, _ = os.getloadavg()
+        n_cpus = os.cpu_count() or 4
+        return (load1 / n_cpus) * 100.0
     except (AttributeError, OSError):
         return 0.0
 
