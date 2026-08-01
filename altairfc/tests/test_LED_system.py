@@ -301,17 +301,18 @@ def main():
                          help="Current loop integral gain, DAC codes per amp-second of error (--target-current)")
     parser.add_argument("--deadband-a", type=float, default=0.001,
                          help="Current loop deadband, amps (--target-current)")
-    parser.add_argument("--max-code-step", type=int, default=15,
-                         help="Max DAC code change per control iteration (--target-current)")
-    parser.add_argument("--oversample", type=int, default=8,
+    parser.add_argument("--max-code-step", type=int, default=8,
+                         help="Max DAC code change per control iteration — bounds how much a single "
+                              "residual-noise correction can move the actuator (--target-current)")
+    parser.add_argument("--oversample", type=int, default=16,
                          help="Raw 860 SPS conversions averaged (trimmed mean) into each current-loop "
                               "sample before the EMA filter — the RF disturbance is a persistent jitter "
                               "on nearly every sample, not occasional spikes, so this (not a faster raw "
                               "sample rate — 860 SPS is already the ADS1115's ceiling) is what actually "
-                              "rejects it (--target-current)")
-    parser.add_argument("--filter-alpha", type=float, default=0.15,
+                              "rejects it. Higher = smoother but slower to settle (--target-current)")
+    parser.add_argument("--filter-alpha", type=float, default=0.08,
                          help="EMA smoothing (0-1] applied on top of the oversampled reading before the "
-                              "PI loop sees it (--target-current)")
+                              "PI loop sees it. Lower = smoother but slower to settle (--target-current)")
     parser.add_argument("--sense-resistor-ohm", type=float, default=None,
                          help="AIN current-sense resistor value, ohms (--target-current). Defaults "
                               f"to the per-channel nominal value {CURRENT_SENSE_RESISTOR_OHM}")
