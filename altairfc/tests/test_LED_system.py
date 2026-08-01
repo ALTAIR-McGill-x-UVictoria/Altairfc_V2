@@ -28,15 +28,22 @@ Closed-loop current hold (--target-current):
     channel 1, NOT the same value (see drivers/ads1115.py's wiring notes) —
     channels 2/3 have no independent current-sense signal, only the
     thermistor bridge, so closed-loop mode is restricted to channel 0/1.
-    The RF transceiver on this payload induces bursty noise onto the
-    MOSFET gate drive, which shows up as fast, largeish swings in DAC
-    code -> LED current that a fixed --code cannot reject. Closed-loop
-    mode runs a PI loop against the *measured* current at close to the
-    ADS1115's fastest one-shot rate (860 SPS) so it can correct within a
-    few control iterations, EMA-filters the current reading first so the
-    loop reacts to the true operating point rather than sensor noise, and
-    only touches the slower thermistor-bridge read / status print on the
-    --interval cadence so that doesn't throttle the correction rate.
+    The RF transceiver on this payload induces a persistent, broadband
+    disturbance onto the MOSFET gate drive — not occasional spikes but a
+    jitter present on essentially every sample while the radio is active
+    (confirmed: current settles rock-solid with the radio unplugged) —
+    that a fixed --code cannot reject and that a single 860 SPS sample per
+    control step mostly passes straight through to the actuator. 860 SPS
+    is already the ADS1115's fastest one-shot rate, so there's no faster
+    raw sampling to reach for; the fix is deeper averaging, not more speed.
+    Each control iteration therefore averages --oversample raw conversions
+    (trimmed mean, dropping the highest/lowest to also reject any single
+    corrupted I2C read) before that sample even reaches the EMA filter
+    (--filter-alpha), which itself runs a longer time constant than the
+    naive "filter the raw 860 SPS stream directly" approach — that combo
+    is what actually rejects a disturbance this size, not a faster loop.
+    The slower thermistor-bridge read / status print stays on the
+    --interval cadence so it doesn't throttle the correction rate.
 
 Usage:
     python tests/test_LED_system.py --channel 0 --code 2047
@@ -192,14 +199,41 @@ def volts_to_current_a(volts, sense_resistor_ohm):
     return volts / sense_resistor_ohm
 
 
+def read_current_a_oversampled(bus, addr, mux_bits, gain, oversample, sense_resistor_ohm):
+    """Average several raw 860 SPS conversions (trimmed mean) into one current sample.
+
+    A single raw conversion mostly passes the RF-coupled gate disturbance
+    straight through — it's a persistent broadband jitter present on nearly
+    every sample, not occasional spikes, so raising the raw sample rate
+    doesn't help (860 SPS is already the ADS1115's ceiling). Averaging
+    multiple conversions per control step, with the extremes dropped so one
+    corrupted I2C read can't skew the mean, is what actually reduces the
+    noise reaching the EMA filter and the PI loop.
+    """
+    volts_samples = [
+        ads1115_code_to_volts(
+            ads1115_one_shot_read_mux(bus, addr, mux_bits, gain=gain, data_rate=_ADS1115_DR_860SPS),
+            gain=gain,
+        )
+        for _ in range(max(1, oversample))
+    ]
+    if len(volts_samples) >= 5:
+        volts_samples.sort()
+        trim = max(1, len(volts_samples) // 8)
+        volts_samples = volts_samples[trim: len(volts_samples) - trim]
+    avg_v = sum(volts_samples) / len(volts_samples)
+    return volts_to_current_a(avg_v, sense_resistor_ohm)
+
+
 class CurrentHoldLoop:
     """PI loop that adjusts an MCP4728 DAC code to hold measured LED current at
-    a target, rejecting the fast RF-coupled disturbance on the MOSFET gate
-    signal rather than a fixed --code, which just rides the disturbance out.
+    a target, rejecting the RF-coupled disturbance on the MOSFET gate signal
+    rather than a fixed --code, which just rides the disturbance out.
 
-    An EMA filter is applied to the current reading before it reaches the
-    controller, since the same RF pickup that jitters the gate also shows up
-    as noise on the ADS1115 reading — without it the loop chases noise instead
+    Expects an already oversampled/trimmed current reading (see
+    read_current_a_oversampled) and applies a further EMA filter on top,
+    since the same RF pickup that jitters the gate also shows up as noise on
+    the ADS1115 reading — without both stages the loop chases noise instead
     of correcting the real operating point.
     """
 
@@ -269,9 +303,15 @@ def main():
                          help="Current loop deadband, amps (--target-current)")
     parser.add_argument("--max-code-step", type=int, default=15,
                          help="Max DAC code change per control iteration (--target-current)")
-    parser.add_argument("--filter-alpha", type=float, default=0.25,
-                         help="EMA smoothing (0-1] applied to the current reading before the PI loop "
-                              "sees it, to reject RF pickup noise on the ADC (--target-current)")
+    parser.add_argument("--oversample", type=int, default=8,
+                         help="Raw 860 SPS conversions averaged (trimmed mean) into each current-loop "
+                              "sample before the EMA filter — the RF disturbance is a persistent jitter "
+                              "on nearly every sample, not occasional spikes, so this (not a faster raw "
+                              "sample rate — 860 SPS is already the ADS1115's ceiling) is what actually "
+                              "rejects it (--target-current)")
+    parser.add_argument("--filter-alpha", type=float, default=0.15,
+                         help="EMA smoothing (0-1] applied on top of the oversampled reading before the "
+                              "PI loop sees it (--target-current)")
     parser.add_argument("--sense-resistor-ohm", type=float, default=None,
                          help="AIN current-sense resistor value, ohms (--target-current). Defaults "
                               f"to the per-channel nominal value {CURRENT_SENSE_RESISTOR_OHM}")
@@ -308,6 +348,10 @@ def main():
 
     if closed_loop and not 0 < args.filter_alpha <= 1:
         print(f"[FAIL] --filter-alpha must be in (0, 1], got {args.filter_alpha}")
+        sys.exit(1)
+
+    if closed_loop and args.oversample < 1:
+        print(f"[FAIL] --oversample must be >= 1, got {args.oversample}")
         sys.exit(1)
 
     start_code = 0 if args.code is None else max(0, min(MCP4728_MAX_CODE, args.code))
@@ -359,10 +403,11 @@ def main():
         print(f"[OK] MCP4728 channel {ch_letter} starting at code {start_code}/{MCP4728_MAX_CODE}, "
               f"current-hold engaged: target={args.target_current:.4f} A "
               f"(sense_r={sense_resistor_ohm} ohm kp={args.kp} ki={args.ki} "
-              f"deadband={args.deadband_a} A max_step={args.max_code_step})")
-        print(f"Control loop reads AIN{args.channel} at 860 SPS every iteration to reject the RF-coupled "
-              f"gate noise; thermistor bridge + status print throttled to interval={args.interval}s, "
-              f"Ctrl+C to stop\n")
+              f"deadband={args.deadband_a} A max_step={args.max_code_step} "
+              f"oversample={args.oversample} filter_alpha={args.filter_alpha})")
+        print(f"Control loop averages {args.oversample}x 860 SPS AIN{args.channel} conversions "
+              f"(trimmed mean) per iteration to reject the RF-coupled gate noise; thermistor bridge + "
+              f"status print throttled to interval={args.interval}s, Ctrl+C to stop\n")
 
         current_code = start_code
         loop = CurrentHoldLoop(
@@ -375,17 +420,16 @@ def main():
         try:
             while True:
                 try:
-                    raw_code = ads1115_one_shot_read_mux(bus, ads1115_addr, mux_bits,
-                                                          gain=args.ads1115_gain,
-                                                          data_rate=_ADS1115_DR_860SPS)
-                    raw_v = ads1115_code_to_volts(raw_code, gain=args.ads1115_gain)
-                    raw_a = volts_to_current_a(raw_v, sense_resistor_ohm=sense_resistor_ohm)
+                    sampled_a = read_current_a_oversampled(
+                        bus, ads1115_addr, mux_bits, gain=args.ads1115_gain,
+                        oversample=args.oversample, sense_resistor_ohm=sense_resistor_ohm,
+                    )
                 except (OSError, TimeoutError) as e:
                     print(f"[FAIL] ADS1115 current read error: {e}")
                     time.sleep(args.interval)
                     continue
 
-                new_code, filtered_a, settled = loop.step(raw_a, current_code)
+                new_code, filtered_a, settled = loop.step(sampled_a, current_code)
                 if new_code != current_code:
                     try:
                         mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, new_code,
@@ -412,7 +456,7 @@ def main():
                     status = "settled" if settled else "correcting"
                     print(f"[{ts}] CH{ch_letter} code={current_code:4d}  "
                           f"target={args.target_current:.4f} A measured={filtered_a:.4f} A "
-                          f"(raw={raw_a:.4f}) err={error_a:+.4f} A [{status}]  {therm_str}")
+                          f"(sample={sampled_a:.4f}) err={error_a:+.4f} A [{status}]  {therm_str}")
         except KeyboardInterrupt:
             print("\nStopping...")
         finally:
