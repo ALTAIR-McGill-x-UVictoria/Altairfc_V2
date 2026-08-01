@@ -267,11 +267,25 @@ class CurrentHoldLoop:
             return current_code, self._filtered_a, settled
 
         self._integral += error * dt
-        delta = self.kp * error + self.ki * self._integral
+        i_term = self.ki * self._integral
+        # Anti-windup: max_code_step rate-limits the applied delta every
+        # iteration, but a long ramp (cold start, recovering from a big
+        # disturbance) keeps accumulating the *unclamped* error the whole
+        # time regardless — the integral term ends up demanding far more
+        # correction than the actuator could ever apply in one step, and
+        # overshoots badly while it unwinds after the fact. Clamp the I-term
+        # itself to the same per-step authority as the actuator, and claw
+        # back the stored integral to match whenever it's clamped, so it
+        # can never owe more than one step's worth of correction.
+        i_term_clamped = max(-self.max_code_step, min(self.max_code_step, i_term))
+        if i_term_clamped != i_term and self.ki != 0:
+            self._integral = i_term_clamped / self.ki
+
+        delta = self.kp * error + i_term_clamped
         delta = max(-self.max_code_step, min(self.max_code_step, delta))
 
         new_code = max(0, min(MCP4728_MAX_CODE, int(round(current_code + delta))))
-        # Anti-windup: stop accumulating once railed and the correction can't
+        # Also stop accumulating once railed and the correction can't
         # actually move the DAC any further this step.
         if new_code == current_code and new_code in (0, MCP4728_MAX_CODE):
             self._integral -= error * dt
