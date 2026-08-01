@@ -22,10 +22,28 @@ LDAC (BCM 20 / physical pin 38) must be driven LOW for MCP4728 writes to
 reach VOUT immediately, same as tests/test_led_driver_thermistor.py; pass
 --no-ldac if it's hardwired to GND on this board.
 
+Closed-loop current hold (--target-current):
+    AIN0/AIN1 sit across their own sense resistor on the sphere/beacon
+    drive current respectively — 2.2 ohm on channel 0, 3 ohm nominal on
+    channel 1, NOT the same value (see drivers/ads1115.py's wiring notes) —
+    channels 2/3 have no independent current-sense signal, only the
+    thermistor bridge, so closed-loop mode is restricted to channel 0/1.
+    The RF transceiver on this payload induces bursty noise onto the
+    MOSFET gate drive, which shows up as fast, largeish swings in DAC
+    code -> LED current that a fixed --code cannot reject. Closed-loop
+    mode runs a PI loop against the *measured* current at close to the
+    ADS1115's fastest one-shot rate (860 SPS) so it can correct within a
+    few control iterations, EMA-filters the current reading first so the
+    loop reacts to the true operating point rather than sensor noise, and
+    only touches the slower thermistor-bridge read / status print on the
+    --interval cadence so that doesn't throttle the correction rate.
+
 Usage:
     python tests/test_LED_system.py --channel 0 --code 2047
     python tests/test_LED_system.py --channel 2 --code 4095 --interval 0.5
     python tests/test_LED_system.py --channel 0 --code 0 --no-ldac
+    python tests/test_LED_system.py --channel 0 --target-current 0.25
+    python tests/test_LED_system.py --channel 1 --target-current 0.10 --kp 4000 --ki 1200
 """
 
 import argparse
@@ -42,7 +60,15 @@ ADS1115_REG_CONFIG = 0x01
 _ADS1115_MUX_SINGLE = {0: 0b100, 1: 0b101, 2: 0b110, 3: 0b111}
 _ADS1115_MUX_DIFF_2_3 = 0b011  # AIN2-AIN3: thermistor bridge (rewired off the ADS1113)
 _ADS1115_DR_128SPS = 0b100
+_ADS1115_DR_860SPS = 0b111  # fastest one-shot rate; used for the current-hold control loop
 _ADS1115_COMP_QUE_DISABLE = 0b11
+
+# LED drive current sense: AIN0/AIN1 each sit across their own sense resistor
+# (sphere/beacon respectively — see drivers/ads1115.py), but the two are NOT
+# the same value: channel 0 is 2.2 ohm, channel 1 is 3 ohm nominal. AIN2/AIN3
+# are the thermistor bridge and carry no independent current signal.
+CURRENT_SENSE_RESISTOR_OHM = {0: 2.2, 1: 3.0}
+CURRENT_SENSE_CHANNELS = tuple(CURRENT_SENSE_RESISTOR_OHM)
 _ADS1115_GAIN_FSR = {
     0: (0b000, 6.144),
     1: (0b001, 4.096),
@@ -114,6 +140,12 @@ def resistance_to_celsius(r, r25=THERM_R25, b=THERM_B, t0=T0_KELVIN):
     return t_kelvin - 273.15
 
 
+_ADS1115_DR_SPS = {
+    0b000: 8, 0b001: 16, 0b010: 32, 0b011: 64,
+    0b100: 128, 0b101: 250, 0b110: 475, 0b111: 860,
+}
+
+
 def _ads1115_to_int16(raw):
     val = raw & 0xFFFF
     return val - 0x10000 if val & 0x8000 else val
@@ -133,7 +165,9 @@ def ads1115_one_shot_read_mux(bus, addr, mux_bits, gain=2, data_rate=_ADS1115_DR
 
     bus.write_i2c_block_data(addr, ADS1115_REG_CONFIG, [(cfg >> 8) & 0xFF, cfg & 0xFF])
 
-    time.sleep((1.0 / 128) * 1.5)
+    # Scale the settle wait to the requested rate so --target-current's 860 SPS
+    # loop isn't stuck waiting out the 128 SPS default on every iteration.
+    time.sleep((1.0 / _ADS1115_DR_SPS[data_rate]) * 1.5)
     deadline = time.monotonic() + 0.5
     while time.monotonic() < deadline:
         raw = bus.read_i2c_block_data(addr, ADS1115_REG_CONFIG, 2)
@@ -154,6 +188,63 @@ def ads1115_code_to_volts(code, gain=2):
     return code * fsr / 32768.0
 
 
+def volts_to_current_a(volts, sense_resistor_ohm):
+    return volts / sense_resistor_ohm
+
+
+class CurrentHoldLoop:
+    """PI loop that adjusts an MCP4728 DAC code to hold measured LED current at
+    a target, rejecting the fast RF-coupled disturbance on the MOSFET gate
+    signal rather than a fixed --code, which just rides the disturbance out.
+
+    An EMA filter is applied to the current reading before it reaches the
+    controller, since the same RF pickup that jitters the gate also shows up
+    as noise on the ADS1115 reading — without it the loop chases noise instead
+    of correcting the real operating point.
+    """
+
+    def __init__(self, target_a, kp, ki, deadband_a, max_code_step, filter_alpha):
+        self.target_a = target_a
+        self.kp = kp
+        self.ki = ki
+        self.deadband_a = deadband_a
+        self.max_code_step = max_code_step
+        self.filter_alpha = filter_alpha
+
+        self._integral = 0.0
+        self._filtered_a = None
+        self._last_t = None
+
+    def step(self, raw_current_a, current_code):
+        """Feed one raw current sample; returns (new_code, filtered_current_a, settled)."""
+        if self._filtered_a is None:
+            self._filtered_a = raw_current_a
+        else:
+            self._filtered_a += self.filter_alpha * (raw_current_a - self._filtered_a)
+
+        error = self.target_a - self._filtered_a
+        settled = abs(error) <= self.deadband_a
+
+        now = time.monotonic()
+        dt = 0.0 if self._last_t is None else now - self._last_t
+        self._last_t = now
+
+        if settled:
+            return current_code, self._filtered_a, settled
+
+        self._integral += error * dt
+        delta = self.kp * error + self.ki * self._integral
+        delta = max(-self.max_code_step, min(self.max_code_step, delta))
+
+        new_code = max(0, min(MCP4728_MAX_CODE, int(round(current_code + delta))))
+        # Anti-windup: stop accumulating once railed and the correction can't
+        # actually move the DAC any further this step.
+        if new_code == current_code and new_code in (0, MCP4728_MAX_CODE):
+            self._integral -= error * dt
+
+        return new_code, self._filtered_a, settled
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Hold an MCP4728 output channel at a fixed code while streaming the "
@@ -162,8 +253,28 @@ def main():
     parser.add_argument("--channel", type=int, choices=[0, 1, 2, 3], required=True,
                          help="MCP4728 output channel (0-3 = A-D); also selects the ADS1115 "
                               "single-ended input channel to monitor (0->AIN0, 1->AIN1, etc.)")
-    parser.add_argument("--code", type=int, required=True,
-                         help="12-bit DAC code (0-4095) to hold on the selected MCP4728 channel")
+    parser.add_argument("--code", type=int, default=None,
+                         help="12-bit DAC code (0-4095) to hold on the selected MCP4728 channel. "
+                              "Required unless --target-current is given, in which case it's just "
+                              "the starting point for the current loop (default: 0)")
+    parser.add_argument("--target-current", type=float, default=None,
+                         help="Engage a PI current-hold loop against the AIN current-sense reading "
+                              "instead of holding a fixed --code, in amps. Only channel 0/1 have a "
+                              "current-sense sense resistor wired up.")
+    parser.add_argument("--kp", type=float, default=3000.0,
+                         help="Current loop proportional gain, DAC codes per amp of error (--target-current)")
+    parser.add_argument("--ki", type=float, default=800.0,
+                         help="Current loop integral gain, DAC codes per amp-second of error (--target-current)")
+    parser.add_argument("--deadband-a", type=float, default=0.001,
+                         help="Current loop deadband, amps (--target-current)")
+    parser.add_argument("--max-code-step", type=int, default=15,
+                         help="Max DAC code change per control iteration (--target-current)")
+    parser.add_argument("--filter-alpha", type=float, default=0.25,
+                         help="EMA smoothing (0-1] applied to the current reading before the PI loop "
+                              "sees it, to reject RF pickup noise on the ADC (--target-current)")
+    parser.add_argument("--sense-resistor-ohm", type=float, default=None,
+                         help="AIN current-sense resistor value, ohms (--target-current). Defaults "
+                              f"to the per-channel nominal value {CURRENT_SENSE_RESISTOR_OHM}")
     parser.add_argument("--bus", default="/dev/i2c-1", help="Shared I2C device node for both chips")
     parser.add_argument("--mcp4728-addr", default=hex(MCP4728_ADDR), help="MCP4728 I2C address")
     parser.add_argument("--ads1115-addr", default=hex(ADS1115_ADDR), help="ADS1115 I2C address")
@@ -175,12 +286,35 @@ def main():
                          help="BCM pin driving LDAC (default: 20 / physical pin 38)")
     parser.add_argument("--no-ldac", action="store_true",
                          help="Don't drive LDAC (use if it's hardwired to GND)")
-    parser.add_argument("--interval", type=float, default=1.0, help="Seconds between samples")
+    parser.add_argument("--interval", type=float, default=1.0,
+                         help="Seconds between status prints (also the legacy open-loop sample period; "
+                              "the --target-current control loop itself runs far faster than this)")
     args = parser.parse_args()
 
-    if not 0 <= args.code <= MCP4728_MAX_CODE:
+    closed_loop = args.target_current is not None
+
+    if closed_loop and args.channel not in CURRENT_SENSE_CHANNELS:
+        print(f"[FAIL] --target-current needs a current-sense channel {CURRENT_SENSE_CHANNELS}, "
+              f"got --channel {args.channel} (AIN2/AIN3 only carry the thermistor bridge)")
+        sys.exit(1)
+
+    if not closed_loop and args.code is None:
+        print("[FAIL] --code is required unless --target-current is given")
+        sys.exit(1)
+
+    if not closed_loop and not 0 <= args.code <= MCP4728_MAX_CODE:
         print(f"[FAIL] --code must be 0-{MCP4728_MAX_CODE}, got {args.code}")
         sys.exit(1)
+
+    if closed_loop and not 0 < args.filter_alpha <= 1:
+        print(f"[FAIL] --filter-alpha must be in (0, 1], got {args.filter_alpha}")
+        sys.exit(1)
+
+    start_code = 0 if args.code is None else max(0, min(MCP4728_MAX_CODE, args.code))
+    sense_resistor_ohm = (
+        args.sense_resistor_ohm if args.sense_resistor_ohm is not None
+        else CURRENT_SENSE_RESISTOR_OHM.get(args.channel)
+    )
 
     try:
         import smbus2
@@ -205,7 +339,7 @@ def main():
         sys.exit(1)
 
     try:
-        mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, args.code,
+        mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, start_code,
                                      vref_vdd=True, gain=1)
     except OSError as e:
         print(f"[FAIL] Could not write MCP4728 at 0x{mcp4728_addr:02X}: {e}")
@@ -218,7 +352,82 @@ def main():
         print(f"[WARN] --channel {args.channel} reads AIN{args.channel} single-ended, which shares "
               f"a physical pin with the AIN2-AIN3 thermistor bridge — that reading will reflect "
               f"the bridge node voltage, not an independent signal.")
-    print(f"[OK] MCP4728 channel {ch_letter} set to code {args.code}/{MCP4728_MAX_CODE}")
+
+    mux_bits = _ADS1115_MUX_SINGLE[args.channel]
+
+    if closed_loop:
+        print(f"[OK] MCP4728 channel {ch_letter} starting at code {start_code}/{MCP4728_MAX_CODE}, "
+              f"current-hold engaged: target={args.target_current:.4f} A "
+              f"(sense_r={sense_resistor_ohm} ohm kp={args.kp} ki={args.ki} "
+              f"deadband={args.deadband_a} A max_step={args.max_code_step})")
+        print(f"Control loop reads AIN{args.channel} at 860 SPS every iteration to reject the RF-coupled "
+              f"gate noise; thermistor bridge + status print throttled to interval={args.interval}s, "
+              f"Ctrl+C to stop\n")
+
+        current_code = start_code
+        loop = CurrentHoldLoop(
+            target_a=args.target_current, kp=args.kp, ki=args.ki,
+            deadband_a=args.deadband_a, max_code_step=args.max_code_step,
+            filter_alpha=args.filter_alpha,
+        )
+        last_print = 0.0
+
+        try:
+            while True:
+                try:
+                    raw_code = ads1115_one_shot_read_mux(bus, ads1115_addr, mux_bits,
+                                                          gain=args.ads1115_gain,
+                                                          data_rate=_ADS1115_DR_860SPS)
+                    raw_v = ads1115_code_to_volts(raw_code, gain=args.ads1115_gain)
+                    raw_a = volts_to_current_a(raw_v, sense_resistor_ohm=sense_resistor_ohm)
+                except (OSError, TimeoutError) as e:
+                    print(f"[FAIL] ADS1115 current read error: {e}")
+                    time.sleep(args.interval)
+                    continue
+
+                new_code, filtered_a, settled = loop.step(raw_a, current_code)
+                if new_code != current_code:
+                    try:
+                        mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, new_code,
+                                                     vref_vdd=True, gain=1)
+                        current_code = new_code
+                    except OSError as e:
+                        print(f"[FAIL] Could not write MCP4728 at 0x{mcp4728_addr:02X}: {e}")
+                        continue
+
+                now = time.monotonic()
+                if now - last_print >= args.interval:
+                    last_print = now
+                    try:
+                        therm_code = ads1115_one_shot_read_mux(bus, ads1115_addr, _ADS1115_MUX_DIFF_2_3,
+                                                                gain=args.therm_gain)
+                        vdiff = ads1115_code_to_volts(therm_code, gain=args.therm_gain)
+                        t_c = resistance_to_celsius(bridge_volts_to_resistance(vdiff))
+                        therm_str = f"T={t_c:6.2f} C"
+                    except (OSError, TimeoutError) as e:
+                        therm_str = f"T=ERR({e})"
+
+                    ts = time.strftime("%H:%M:%S")
+                    error_a = args.target_current - filtered_a
+                    status = "settled" if settled else "correcting"
+                    print(f"[{ts}] CH{ch_letter} code={current_code:4d}  "
+                          f"target={args.target_current:.4f} A measured={filtered_a:.4f} A "
+                          f"(raw={raw_a:.4f}) err={error_a:+.4f} A [{status}]  {therm_str}")
+        except KeyboardInterrupt:
+            print("\nStopping...")
+        finally:
+            try:
+                mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, 0,
+                                             vref_vdd=True, gain=1)
+                print(f"CH{ch_letter} reset to code 0")
+            except OSError as e:
+                print(f"[FAIL] Could not reset MCP4728 channel {ch_letter} to 0: {e}")
+            ldac.close()
+            bus.close()
+            print("Done")
+        return
+
+    print(f"[OK] MCP4728 channel {ch_letter} set to code {start_code}/{MCP4728_MAX_CODE}")
     print(f"Monitoring ADS1115 at 0x{ads1115_addr:02X}: thermistor bridge (AIN2-AIN3, differential) "
           f"and AIN{args.channel} (single-ended), interval={args.interval}s, Ctrl+C to stop\n")
 
@@ -236,7 +445,6 @@ def main():
                 continue
 
             try:
-                mux_bits = _ADS1115_MUX_SINGLE[args.channel]
                 led_code = ads1115_one_shot_read_mux(bus, ads1115_addr, mux_bits, gain=args.ads1115_gain)
                 led_v = ads1115_code_to_volts(led_code, gain=args.ads1115_gain)
             except (OSError, TimeoutError) as e:
@@ -245,7 +453,7 @@ def main():
                 continue
 
             ts = time.strftime("%H:%M:%S")
-            print(f"[{ts}] CH{ch_letter} code={args.code:4d}  "
+            print(f"[{ts}] CH{ch_letter} code={start_code:4d}  "
                   f"TH1: Vdiff={vdiff:+.6f} V R={r:8.1f} ohm T={t_c:6.2f} C  |  "
                   f"AIN{args.channel}: {led_v:.4f} V")
 
