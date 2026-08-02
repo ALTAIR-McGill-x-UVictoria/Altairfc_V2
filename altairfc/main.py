@@ -277,6 +277,8 @@ def main() -> None:
             beacon_windows=config.tasks["lighting"].extra.get("beacon_windows", []),
             i2c_dev=config.tasks["lighting"].extra.get("i2c_dev", "/dev/i2c-1"),
             sphere_target_current_a=config.tasks["lighting"].extra.get("sphere_target_current_a"),
+            sphere_kp=config.tasks["lighting"].extra.get("sphere_kp"),
+            sphere_ki=config.tasks["lighting"].extra.get("sphere_ki"),
             beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
         )
     )

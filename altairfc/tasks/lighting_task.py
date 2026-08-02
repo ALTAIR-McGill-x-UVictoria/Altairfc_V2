@@ -115,12 +115,16 @@ class LightingTask(BaseTask):
         beacon_windows: list[dict[str, Any]],
         i2c_dev: str = "/dev/i2c-1",
         sphere_target_current_a: float | None = None,
+        sphere_kp: float | None = None,
+        sphere_ki: float | None = None,
         beacon_dac_code: int = 1500,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._i2c_dev = i2c_dev
         self._beacon_windows = parse_windows(beacon_windows)
         self._sphere_target_current_a = sphere_target_current_a
+        self._sphere_kp = sphere_kp
+        self._sphere_ki = sphere_ki
         self._beacon_dac_code = max(0, min(BEACON_MAX_SAFE_CODE, int(beacon_dac_code)))
 
         if not self._beacon_windows:
@@ -183,7 +187,9 @@ class LightingTask(BaseTask):
         # class docstring) — teardown() zeroes it unconditionally.
         if observation_active and not self._sphere_on and self._sphere_target_current_a is not None:
             self._set_beacon(False)
-            self._sphere.hold_current(self._sphere_target_current_a)
+            self._sphere.hold_current(
+                self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
+            )
             self._sphere_on = True
             logger.info(
                 "LightingTask: sphere on (target %.4f A) — will not turn off internally; "

@@ -106,9 +106,13 @@ class _FakeSphere:
     def __init__(self, pair: _FakeInterlockedPair) -> None:
         self._pair = pair
         self.target_current_a: float | None = None
+        self.kp: float | None = None
+        self.ki: float | None = None
 
-    def hold_current(self, target_a: float) -> None:
+    def hold_current(self, target_a: float, *, kp: float | None = None, ki: float | None = None) -> None:
         self.target_current_a = target_a
+        self.kp = kp
+        self.ki = ki
 
     def update(self) -> None:
         if self._pair.relay_code > 0:
