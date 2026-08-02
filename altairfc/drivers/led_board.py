@@ -31,12 +31,12 @@ each other's channel on every write. LedBoard is the single writer both
 SphereLedSource and BeaconChannel must share -- never construct two
 independent MCP4728Driver instances against this board.
 
-Because the sphere source and the beacon must never be energized at the same
-time (especially during a scheduled imaging window -- see tasks/lighting_task.py),
-LedBoard also enforces that interlock in one place: write_channel() refuses to
-energize SPHERE_CHANNEL while RELAY_CHANNEL is on (or vice versa). The
-interlock is keyed on RELAY_CHANNEL, not BEACON_CHANNEL, because BEACON_CHANNEL
-alone never emits light -- only RELAY_CHANNEL does.
+The sphere source and the beacon CAN be energized at the same time -- there is
+no electrical constraint against it, only an imaging one: the beacon must be
+off during actual sphere calibration exposures so it doesn't contaminate them.
+That's a scheduling concern (see tasks/lighting_task.py's beacon_windows,
+which are the *only* times the beacon is allowed on, precisely because they're
+defined as the non-observation windows), not something this driver enforces.
 """
 
 from __future__ import annotations
@@ -53,11 +53,6 @@ DEFAULT_LDAC_PIN = 20  # BCM numbering, physical pin 38
 SPHERE_CHANNEL = 0  # MCP4728 channel A -- sphere source drive current
 BEACON_CHANNEL = 1  # MCP4728 channel B -- beacon brightness setpoint (no light without RELAY_CHANNEL)
 RELAY_CHANNEL  = 3  # MCP4728 channel D -- beacon on/off switch; this is what actually energizes it
-_INTERLOCKED_CHANNELS = (SPHERE_CHANNEL, RELAY_CHANNEL)
-
-
-class InterlockViolation(RuntimeError):
-    """Raised when a write would energize both interlocked channels at once."""
 
 
 class LedBoard:
@@ -111,15 +106,8 @@ class LedBoard:
         return self._codes[channel]
 
     def write_channel(self, channel: int, code: int) -> None:
-        """Set one channel's DAC code, refusing it if the interlocked partner is on."""
+        """Set one channel's DAC code."""
         code = max(0, min(MAX_CODE, int(code)))
-        if code > 0 and channel in _INTERLOCKED_CHANNELS:
-            other = RELAY_CHANNEL if channel == SPHERE_CHANNEL else SPHERE_CHANNEL
-            if self._codes[other] > 0:
-                raise InterlockViolation(
-                    f"refusing to energize channel {channel} (code={code}) while "
-                    f"interlocked channel {other} is already at code {self._codes[other]}"
-                )
         self._codes[channel] = code
         self._flush()
 

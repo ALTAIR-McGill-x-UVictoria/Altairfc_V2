@@ -8,10 +8,10 @@ colour. This source uses one MCP4728 DAC channel (0x60):
 
 MCP4728 channel B (index 1) is no longer a second sphere drive stage — it is
 now wired to a physically separate, non-sphere external LED used to let
-ground observers visually spot the payload (see drivers/beacon_led.py). The
-sphere source and that beacon must never be energized at the same time; both
-channels now share a single drivers/led_board.LedBoard, which owns the MCP4728
-Multi-Write and enforces that interlock.
+ground observers visually spot the payload (see drivers/beacon_led.py). Both
+channels share a single drivers/led_board.LedBoard, which owns the MCP4728
+Multi-Write; the sphere and beacon can be energized simultaneously (no
+electrical constraint), so LedBoard does not interlock them.
 
 Feedback comes from an ADS1115 (0x4A) on the same bus: this channel's drive
 current across its own 2.2 ohm sense resistor (AIN0), and an NTC Wheatstone

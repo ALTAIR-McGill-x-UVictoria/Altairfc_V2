@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from core.datastore import DataStore
-from drivers.led_board import InterlockViolation
 from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
@@ -93,8 +92,9 @@ def test_parse_windows_default_label():
 # LightingTask actuation logic (hardware replaced with fakes)
 # ---------------------------------------------------------------------------
 
-class _FakeInterlockedPair:
-    """Mimics drivers.led_board.LedBoard's interlock (sphere vs. relay) for two fake channel objects."""
+class _FakeChannelState:
+    """Tracks the two fake channel objects' codes -- sphere and beacon relay are independent,
+    no interlock between them (see drivers/led_board.py's module docstring)."""
 
     def __init__(self) -> None:
         self.sphere_code = 0
@@ -104,7 +104,7 @@ class _FakeInterlockedPair:
 class _FakeSphere:
     """Mimics SphereLedSource's hold_current()/update() current-loop interface."""
 
-    def __init__(self, pair: _FakeInterlockedPair) -> None:
+    def __init__(self, pair: _FakeChannelState) -> None:
         self._pair = pair
         self.target_current_a: float | None = None
         self.kp: float | None = None
@@ -116,8 +116,6 @@ class _FakeSphere:
         self.ki = ki
 
     def update(self) -> LedState:
-        if self._pair.relay_code > 0:
-            raise InterlockViolation("beacon relay on")
         self._pair.sphere_code = 1   # stand-in for "DAC is now driving toward target"
         return LedState(
             code=self._pair.sphere_code,
@@ -133,9 +131,9 @@ class _FakeSphere:
 
 
 class _FakeBeacon:
-    """Mimics BeaconChannel's brightness (ch1, not interlocked) + on()/off() (ch3 relay, interlocked)."""
+    """Mimics BeaconChannel's brightness (ch1) + on()/off() (ch3 relay) -- independent of the sphere."""
 
-    def __init__(self, pair: _FakeInterlockedPair) -> None:
+    def __init__(self, pair: _FakeChannelState) -> None:
         self._pair = pair
         self.brightness_code = 0
 
@@ -143,8 +141,6 @@ class _FakeBeacon:
         self.brightness_code = code
 
     def on(self) -> None:
-        if self._pair.sphere_code > 0:
-            raise InterlockViolation("sphere on")
         self._pair.relay_code = 1
 
     def off(self) -> None:
@@ -155,19 +151,21 @@ class _FakeBeacon:
         self._pair.relay_code = 0
 
 
-def _make_task(**kwargs) -> tuple[LightingTask, _FakeInterlockedPair]:
+def _make_task(**kwargs) -> tuple[LightingTask, _FakeChannelState]:
     task = LightingTask("lighting", 0.2, DataStore(), beacon_windows=[], **kwargs)
-    pair = _FakeInterlockedPair()
+    pair = _FakeChannelState()
     task._board = object()  # only needs to be non-None; _apply() doesn't touch it directly
     task._sphere = _FakeSphere(pair)
     task._beacon = _FakeBeacon(pair)
     return task, pair
 
 
-def test_apply_turns_sphere_on_when_observation_active():
+def test_apply_turns_sphere_on_immediately():
+    """Sphere engages on the very first _apply() call whenever sphere_target_current_a is
+    configured — no longer gated on observation_active/event.ascent_active."""
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
-    task._apply(True, None)
+    task._apply(True, None)  # no active beacon window
 
     assert task._sphere_on is True
     assert task._beacon_on is False
@@ -188,17 +186,21 @@ def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
     assert pair.sphere_code != 0
 
 
-def test_apply_strobes_beacon_when_sphere_unconfigured():
-    """The beacon only ever gets a window when sphere_target_current_a is unset — otherwise the
-    sphere latches on at task start (see test_apply_sphere_engages_immediately_and_keeps_beacon_off)
-    and permanently interlocks the beacon out."""
-    task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
+def test_apply_beacon_strobes_during_window_even_while_sphere_is_on():
+    """No interlock: the beacon flashes on its schedule regardless of the sphere's state. Safe
+    by construction because beacon_windows are defined as the non-observation windows — see
+    LightingTask's class docstring."""
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
-    task._apply(False, w)
+    task._apply(True, None)  # sphere latches on, no window yet
+    assert task._sphere_on is True
+    assert task._beacon_on is False
 
-    assert task._sphere_on is False
+    task._apply(True, w)  # beacon window now active — sphere stays on throughout
+    assert task._sphere_on is True
     assert task._beacon_on is True
+    assert pair.sphere_code != 0
     assert pair.relay_code == 1
 
 
@@ -212,7 +214,8 @@ def test_apply_leaves_beacon_off_outside_window():
 
 
 def test_apply_leaves_sphere_off_when_no_target_current_configured():
-    """Per project decision: an unconfigured sphere_target_current_a must never guess a value."""
+    """Per project decision: an unconfigured sphere_target_current_a must never guess a value.
+    The beacon still strobes on schedule regardless."""
     task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
@@ -221,19 +224,6 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
     assert task._sphere_on is False
     assert task._beacon_on is True
     assert pair.sphere_code == 0
-
-
-def test_apply_sphere_engages_immediately_and_keeps_beacon_off():
-    """Sphere engages on the very first _apply() call regardless of observation_active or an
-    active beacon window — no longer gated on event.ascent_active — and keeps the beacon
-    interlocked off from then on."""
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
-    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
-
-    task._apply(False, w)  # observation_active False, beacon window active — sphere still engages
-    assert task._sphere_on is True
-    assert task._beacon_on is False
-    assert pair.relay_code == 0
 
 
 def test_teardown_zeroes_sphere_and_beacon_including_relay():

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
-from drivers.led_board import BEACON_CHANNEL, RELAY_CHANNEL, SPHERE_CHANNEL, InterlockViolation, LedBoard
+from drivers.led_board import BEACON_CHANNEL, RELAY_CHANNEL, SPHERE_CHANNEL, LedBoard
 from drivers.mcp4728_driver import MAX_CODE
 
 
@@ -40,46 +38,22 @@ def test_code_clamped_to_dac_range():
     assert board.code(SPHERE_CHANNEL) == 0
 
 
-def test_beacon_brightness_channel_is_not_interlocked():
-    """BEACON_CHANNEL (brightness) alone emits no light — only RELAY_CHANNEL does."""
+def test_beacon_brightness_channel_independent_of_sphere():
     board, dac = _make_board()
     board.write_channel(SPHERE_CHANNEL, 500)
     board.write_channel(BEACON_CHANNEL, 1500)  # must not raise
     assert board.code(BEACON_CHANNEL) == 1500
 
 
-def test_interlock_blocks_relay_while_sphere_on():
+def test_sphere_and_relay_can_be_energized_simultaneously():
+    """No electrical constraint between the sphere and the beacon relay — see led_board.py's
+    module docstring. Keeping the beacon dark during real imaging is a scheduling concern
+    (tasks/lighting_task.py's beacon_windows), not something this driver enforces."""
     board, dac = _make_board()
     board.write_channel(SPHERE_CHANNEL, 500)
-    with pytest.raises(InterlockViolation):
-        board.write_channel(RELAY_CHANNEL, MAX_CODE)
-    # the refused write must not have touched either channel
+    board.write_channel(RELAY_CHANNEL, MAX_CODE)  # must not raise
     assert board.code(SPHERE_CHANNEL) == 500
-    assert board.code(RELAY_CHANNEL) == 0
-
-
-def test_interlock_blocks_sphere_while_relay_on():
-    board, dac = _make_board()
-    board.write_channel(RELAY_CHANNEL, MAX_CODE)
-    with pytest.raises(InterlockViolation):
-        board.write_channel(SPHERE_CHANNEL, 500)
     assert board.code(RELAY_CHANNEL) == MAX_CODE
-    assert board.code(SPHERE_CHANNEL) == 0
-
-
-def test_interlock_releases_after_all_off():
-    board, dac = _make_board()
-    board.write_channel(SPHERE_CHANNEL, 500)
-    board.all_off(SPHERE_CHANNEL)
-    board.write_channel(RELAY_CHANNEL, MAX_CODE)  # must not raise now
-    assert board.code(RELAY_CHANNEL) == MAX_CODE
-
-
-def test_zero_writes_never_trip_interlock():
-    board, dac = _make_board()
-    board.write_channel(SPHERE_CHANNEL, 500)
-    board.write_channel(RELAY_CHANNEL, 0)  # writing 0 is always allowed
-    assert board.code(RELAY_CHANNEL) == 0
 
 
 def test_close_zeroes_all_channels_and_closes_dac():

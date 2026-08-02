@@ -10,7 +10,7 @@ from telemetry.registry import FieldMeta, packet_registry
 @dataclass
 class LightingPacket:
     """
-    Sphere source / spotter beacon interlock state.
+    Sphere source / spotter beacon state.
     Packet ID: 0x0E
     Source: LightingTask -> DataStore "lighting.*" keys
     """

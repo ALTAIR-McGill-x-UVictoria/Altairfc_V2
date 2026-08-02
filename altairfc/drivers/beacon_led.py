@@ -21,14 +21,17 @@ beacon's default.
 
 Open-loop only: no current-hold PI loop, since the beacon's job is visual
 strobing, not calibrated optical output. Must share the same LedBoard as
-SphereLedSource so the sphere/beacon interlock (drivers/led_board.py) is
-enforced on every write -- never open a second MCP4728Driver against this chip.
+SphereLedSource, which is the single writer to this MCP4728 -- never open a
+second MCP4728Driver against this chip. The sphere and beacon can be
+energized simultaneously (no electrical constraint); keeping the beacon off
+during actual sphere calibration exposures is a scheduling concern handled by
+tasks/lighting_task.py's beacon_windows, not something this driver enforces.
 
 Usage:
     board = LedBoard(bus=bus)
     beacon = BeaconChannel(board=board)
     beacon.set_brightness(1500)   # clamped to BEACON_MAX_SAFE_CODE regardless
-    beacon.on()                   # energizes the relay -- raises InterlockViolation if the sphere is on
+    beacon.on()                   # energizes the relay
     beacon.off()
     beacon.all_off()              # zeros brightness AND relay
 """
@@ -70,18 +73,12 @@ class BeaconChannel:
     def set_brightness(self, code: int) -> None:
         """Hold the beacon's brightness setpoint (channel 1), clamped to BEACON_MAX_SAFE_CODE.
 
-        This alone does not energize the LED — see on()/off(). Not interlocked:
-        channel 1 emits no light without the relay, so this never raises
-        InterlockViolation regardless of the sphere's state.
+        This alone does not energize the LED — see on()/off().
         """
         self._board.write_channel(BEACON_CHANNEL, max(0, min(BEACON_MAX_SAFE_CODE, int(code))))
 
     def on(self) -> None:
-        """Energize the relay (channel 3) — this is what actually turns the beacon LED on.
-
-        Raises drivers.led_board.InterlockViolation if the sphere channel is
-        currently energized — callers must turn the sphere off first.
-        """
+        """Energize the relay (channel 3) — this is what actually turns the beacon LED on."""
         self._board.write_channel(RELAY_CHANNEL, MAX_CODE)
 
     def off(self) -> None:

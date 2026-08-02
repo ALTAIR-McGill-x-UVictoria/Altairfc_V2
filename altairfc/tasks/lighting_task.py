@@ -9,7 +9,7 @@ from typing import Any
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BeaconChannel
-from drivers.led_board import InterlockViolation, LedBoard
+from drivers.led_board import LedBoard
 from drivers.sphere_led import LedState, SphereLedSource
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,8 @@ def seconds_to_window(now_s: float, w: ImagingWindow) -> float:
 
 class LightingTask(BaseTask):
     """
-    Two independent behaviors sharing one interlocked LED board:
+    Two independent behaviors sharing one LED board, run fully independently
+    of each other:
 
       * Sphere source: engages SphereLedSource's current-hold PI loop as soon
         as this task starts (first execute() after a successful setup()) —
@@ -79,22 +80,26 @@ class LightingTask(BaseTask):
         teardown(), which zeroes both channels.
 
       * Spotter beacon: strobes on a fixed GPS-UTC schedule (beacon_windows,
-        e.g. 5s flashes at :25 and :55 of every minute) whenever the sphere
-        isn't on. Brightness (MCP4728 channel 1) is set once; each flash
-        toggles the relay (channel 3) on/off — see drivers/beacon_led.py.
-        Since the sphere now latches on at task start rather than at ascent,
-        the beacon effectively never gets a window to flash in a normal run
-        (sphere_on goes true on the very first execute() cycle) — this path
-        is only live if sphere_target_current_a is left unconfigured (None).
+        e.g. 5s flashes at :25 and :55 of every minute), regardless of
+        whether the sphere is on. Brightness (MCP4728 channel 1) is set
+        once; each flash toggles the relay (channel 3) on/off — see
+        drivers/beacon_led.py. beacon_windows are defined as the times
+        ground-based imaging is NOT happening — i.e. the beacon flashing
+        during those windows is exactly why they must stay clear of actual
+        calibration exposures. Outside beacon_windows the beacon is off, so
+        it never contaminates an exposure.
 
-    The sphere and the beacon's relay are never energized together —
-    enforced by drivers.led_board.LedBoard, which both SphereLedSource and
-    BeaconChannel share.
+    The sphere and the beacon's relay CAN be energized together — there's no
+    electrical constraint against it (drivers.led_board.LedBoard does not
+    interlock them); keeping them apart is purely about not flashing the
+    beacon during a real imaging exposure, which is what beacon_windows
+    already guarantees by construction.
 
     Imaging is done by ground-based cameras/telescopes, not an onboard camera:
     since the downlink is unidirectional, ground observers independently know
-    the same UTC window schedule, so no uplink command is needed to
-    coordinate exposure with the sphere source turning on.
+    the same UTC window schedule (beacon_windows) and are expected to image
+    outside of it, so no uplink command is needed to coordinate exposure
+    timing with the beacon.
 
     UTC source: the Pi's system clock (datetime.now(timezone.utc)), which is
     chrony/GPS-PPS-disciplined pre-launch. Per project decision this is used
@@ -205,7 +210,6 @@ class LightingTask(BaseTask):
         # off. It only ever stops via this task being stopped (see the
         # class docstring) — teardown() zeroes it unconditionally.
         if not self._sphere_on and self._sphere_target_current_a is not None:
-            self._set_beacon(False)
             self._sphere.hold_current(
                 self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
             )
@@ -217,14 +221,13 @@ class LightingTask(BaseTask):
             )
 
         if self._sphere_on:
-            self._set_beacon(False)
-            try:
-                state = self._sphere.update()
-                self._log_loop_stats(state)
-            except InterlockViolation:
-                logger.error("LightingTask: sphere current-hold step blocked by interlock — beacon did not turn off")
-        else:
-            self._set_beacon(active_beacon_window is not None)
+            state = self._sphere.update()
+            self._log_loop_stats(state)
+
+        # Independent of the sphere: strobe on beacon_windows, which are
+        # defined as the times ground imaging is NOT happening, so the sphere
+        # being on at the same time never contaminates a real exposure.
+        self._set_beacon(active_beacon_window is not None)
 
     def _log_loop_stats(self, state: LedState) -> None:
         """Once/sec, log the achieved update() rate plus the current spread seen within that
@@ -264,15 +267,10 @@ class LightingTask(BaseTask):
         if on == self._beacon_on:
             return
         if on:
-            try:
-                self._beacon.on()
-                self._beacon_on = True
-            except InterlockViolation:
-                logger.error("LightingTask: beacon blocked by interlock — sphere is on")
-                self._beacon_on = False
+            self._beacon.on()
         else:
             self._beacon.off()
-            self._beacon_on = False
+        self._beacon_on = on
 
     def teardown(self) -> None:
         if self._sphere is not None:
