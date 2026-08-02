@@ -61,6 +61,14 @@ import time
 MCP4728_ADDR = 0x60
 MCP4728_MAX_CODE = 4095
 
+# Hard relay cutoff: channel 3 drives a 2N2222A that energizes a relay gating
+# channel 1's (beacon) LED supply — a physical failsafe against the RF
+# rectification onto the beacon's gate that no amount of analog filtering
+# fully eliminated. Channel 1 does nothing unless this relay is energized
+# first (MCP4728_MAX_CODE -> ~3.3V at the DAC's Vdd-referenced full scale).
+RELAY_CHANNEL = 3
+RELAY_GATED_LED_CHANNEL = 1
+
 ADS1115_ADDR = 0x4A  # ADDR pin strapped to SDA
 ADS1115_REG_CONVERSION = 0x00
 ADS1115_REG_CONFIG = 0x01
@@ -129,6 +137,15 @@ def mcp4728_multi_write_channel(bus, addr, channel, code, vref_vdd=True, gain=1)
     upper = (vref_bit << 7) | (0 << 5) | (gain_bit << 4) | ((code >> 8) & 0x0F)
     lower = code & 0xFF
     bus.write_i2c_block_data(addr, cmd, [upper, lower])
+
+
+def _relay_off(bus, addr):
+    """Best-effort de-energize the beacon relay; never raises — used on every exit path."""
+    try:
+        mcp4728_multi_write_channel(bus, addr, RELAY_CHANNEL, 0, vref_vdd=True, gain=1)
+        print(f"Relay channel {RELAY_CHANNEL} de-energized")
+    except OSError as e:
+        print(f"[FAIL] Could not de-energize relay channel {RELAY_CHANNEL}: {e}")
 
 
 def bridge_volts_to_resistance(vdiff, r=BRIDGE_R, vexc=VEXC):
@@ -397,11 +414,25 @@ def main():
         ldac.close()
         sys.exit(1)
 
+    if args.channel == RELAY_GATED_LED_CHANNEL:
+        try:
+            mcp4728_multi_write_channel(bus, mcp4728_addr, RELAY_CHANNEL, MCP4728_MAX_CODE,
+                                         vref_vdd=True, gain=1)
+            print(f"[OK] Relay channel {RELAY_CHANNEL} energized — "
+                  f"channel {RELAY_GATED_LED_CHANNEL}'s LED supply is now connected")
+        except OSError as e:
+            print(f"[FAIL] Could not energize relay channel {RELAY_CHANNEL}: {e}")
+            ldac.close()
+            bus.close()
+            sys.exit(1)
+
     try:
         mcp4728_multi_write_channel(bus, mcp4728_addr, args.channel, start_code,
                                      vref_vdd=True, gain=1)
     except OSError as e:
         print(f"[FAIL] Could not write MCP4728 at 0x{mcp4728_addr:02X}: {e}")
+        if args.channel == RELAY_GATED_LED_CHANNEL:
+            _relay_off(bus, mcp4728_addr)
         ldac.close()
         bus.close()
         sys.exit(1)
@@ -481,6 +512,8 @@ def main():
                 print(f"CH{ch_letter} reset to code 0")
             except OSError as e:
                 print(f"[FAIL] Could not reset MCP4728 channel {ch_letter} to 0: {e}")
+            if args.channel == RELAY_GATED_LED_CHANNEL:
+                _relay_off(bus, mcp4728_addr)
             ldac.close()
             bus.close()
             print("Done")
@@ -526,6 +559,8 @@ def main():
             print(f"CH{ch_letter} reset to code 0")
         except OSError as e:
             print(f"[FAIL] Could not reset MCP4728 channel {ch_letter} to 0: {e}")
+        if args.channel == RELAY_GATED_LED_CHANNEL:
+            _relay_off(bus, mcp4728_addr)
         ldac.close()
         bus.close()
         print("Done")
