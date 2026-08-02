@@ -229,6 +229,8 @@ class FlightStageTask(BaseTask):
         self._arm_cmd_pending: bool = False
         self._preflight_ok_since: float | None = None
         self._actuator_checks: _ActuatorChecks = _ActuatorChecks()
+        self._last_preflight_failures: tuple[str, ...] | None = None
+        self._last_arm_failures: tuple[str, ...] | None = None
 
         self._pointing_start_time = None
 
@@ -377,7 +379,10 @@ class FlightStageTask(BaseTask):
                     logger.info("FlightStageTask: arm checks passed — advancing to STAGE_ARMED")
                     return STAGE_ARMED
                 else:
-                    logger.debug("FlightStageTask: arm checks pending: %s", ", ".join(arm_failures))
+                    arm_failures_key = tuple(arm_failures)
+                    if arm_failures_key != self._last_arm_failures:
+                        logger.info("FlightStageTask: arm checks pending: %s", ", ".join(arm_failures))
+                        self._last_arm_failures = arm_failures_key
 
         elif stage == STAGE_ARMED:
             self._write_flag("arm_state", 1)
@@ -509,10 +514,15 @@ class FlightStageTask(BaseTask):
             if mm_entry is None or (now - mm_entry[1]) > _VESC_RPM_TIMEOUT_S:
                 failures.append("mm_vesc_missing")
 
-        if failures:
-            logger.debug("FlightStageTask: preflight failures: %s", ", ".join(failures))
-            return False
-        return True
+        failures_key = tuple(failures)
+        if failures_key != self._last_preflight_failures:
+            if failures:
+                logger.info("FlightStageTask: preflight failures: %s", ", ".join(failures))
+            elif self._last_preflight_failures:
+                logger.info("FlightStageTask: preflight failures cleared")
+            self._last_preflight_failures = failures_key
+
+        return not failures
 
     def _check_arm(self, now: float) -> tuple[bool, list[str]]:
         """
