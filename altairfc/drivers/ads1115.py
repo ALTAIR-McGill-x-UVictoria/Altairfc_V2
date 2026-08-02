@@ -44,6 +44,11 @@ _DR_SPS = {
     0b100: 128, 0b101: 250, 0b110: 475, 0b111: 860,
 }
 
+# A single transient I2C fault (e.g. errno 121 "Remote I/O error") shouldn't be
+# allowed to take down an entire caller-level control loop — see read_volts().
+_MAX_I2C_RETRIES = 3
+_I2C_RETRY_DELAY_S = 0.002
+
 # gain key -> (PGA register bits, full-scale range in volts)
 GAIN_FSR = {
     0: (0b000, 6.144),
@@ -108,8 +113,14 @@ class Ads1115:
     def read_volts(self, mux_bits: int, gain: int = 2, data_rate: int = DR_128SPS) -> float:
         """Trigger one conversion on an arbitrary MUX setting and return volts.
 
-        Raises OSError on an I2C fault and TimeoutError if the conversion never
-        completes; callers that must survive a flaky read should catch both.
+        Retries the whole conversion up to _MAX_I2C_RETRIES times on a transient
+        I2C fault (OSError, e.g. errno 121 "Remote I/O error") before giving up
+        — a single dropped transaction on a real bus shouldn't be allowed to
+        kill an entire caller-level control loop (e.g. SphereLedSource.update(),
+        called ~13x/sec, previously took the whole current-hold loop down and
+        forced a full ramp-from-zero restart on one bad NACK). Still raises
+        OSError/TimeoutError after exhausting retries — a persistent fault must
+        not be swallowed.
         """
         pga_bits, fsr = GAIN_FSR[gain]
 
@@ -121,22 +132,34 @@ class Ads1115:
         cfg |= (data_rate & 0x07) << 5
         cfg |= _COMP_QUE_DISABLE & 0x03
 
-        self._bus.write_i2c_block_data(self._addr, REG_CONFIG, [(cfg >> 8) & 0xFF, cfg & 0xFF])
+        for attempt in range(1, _MAX_I2C_RETRIES + 1):
+            try:
+                self._bus.write_i2c_block_data(self._addr, REG_CONFIG, [(cfg >> 8) & 0xFF, cfg & 0xFF])
 
-        time.sleep((1.0 / _DR_SPS[data_rate]) * 1.5)
-        deadline = time.monotonic() + 0.5
-        while time.monotonic() < deadline:
-            raw = self._bus.read_i2c_block_data(self._addr, REG_CONFIG, 2)
-            status = (raw[0] << 8) | raw[1]
-            if status & 0x8000:  # OS=1 means conversion complete / ADC idle
-                break
-            time.sleep(0.001)
-        else:
-            raise TimeoutError(f"ADS1115 at 0x{self._addr:02X} conversion did not complete")
+                time.sleep((1.0 / _DR_SPS[data_rate]) * 1.5)
+                deadline = time.monotonic() + 0.5
+                while time.monotonic() < deadline:
+                    raw = self._bus.read_i2c_block_data(self._addr, REG_CONFIG, 2)
+                    status = (raw[0] << 8) | raw[1]
+                    if status & 0x8000:  # OS=1 means conversion complete / ADC idle
+                        break
+                    time.sleep(0.001)
+                else:
+                    raise TimeoutError(f"ADS1115 at 0x{self._addr:02X} conversion did not complete")
 
-        raw = self._bus.read_i2c_block_data(self._addr, REG_CONVERSION, 2)
-        code = _to_int16((raw[0] << 8) | raw[1])
-        return code * fsr / 32768.0
+                raw = self._bus.read_i2c_block_data(self._addr, REG_CONVERSION, 2)
+                code = _to_int16((raw[0] << 8) | raw[1])
+                return code * fsr / 32768.0
+            except OSError as exc:
+                if attempt == _MAX_I2C_RETRIES:
+                    raise
+                logger.warning(
+                    "Ads1115: I2C fault on attempt %d/%d (%s), retrying",
+                    attempt, _MAX_I2C_RETRIES, exc,
+                )
+                time.sleep(_I2C_RETRY_DELAY_S)
+
+        raise AssertionError("unreachable")  # loop always returns or raises
 
     def read_single_ended(self, channel: int, gain: int = 2) -> float:
         """Read AIN<channel> against GND, in volts.
