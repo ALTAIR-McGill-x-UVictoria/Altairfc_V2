@@ -58,7 +58,7 @@ enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
 [tasks.lighting]
-enabled  = false  # PLACEHOLDER — enable once flight-ready
+enabled  = true  # PLACEHOLDER — enable once flight-ready
 period_s = 0.2    # 5 Hz — tight enough relative to the 5s beacon flash duration below
 i2c_dev  = "/dev/i2c-1"
 sphere_target_current_a = 0.2657   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
