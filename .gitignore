@@ -22,7 +22,7 @@ altairfc/*.csv
 altairfc/*.log
 
 # Compiled files
-*.so
+altairfc/drivers/*.so
 
 # logs
 ./altairfc/logs/*
