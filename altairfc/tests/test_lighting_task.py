@@ -180,8 +180,11 @@ def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
     assert pair.sphere_code != 0
 
 
-def test_apply_strobes_beacon_in_window_before_observation_starts():
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+def test_apply_strobes_beacon_when_sphere_unconfigured():
+    """The beacon only ever gets a window when sphere_target_current_a is unset — otherwise the
+    sphere latches on at task start (see test_apply_sphere_engages_immediately_and_keeps_beacon_off)
+    and permanently interlocks the beacon out."""
+    task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
     task._apply(False, w)
@@ -212,14 +215,14 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
     assert pair.sphere_code == 0
 
 
-def test_apply_forces_beacon_off_once_sphere_engages():
+def test_apply_sphere_engages_immediately_and_keeps_beacon_off():
+    """Sphere engages on the very first _apply() call regardless of observation_active or an
+    active beacon window — no longer gated on event.ascent_active — and keeps the beacon
+    interlocked off from then on."""
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
-    task._apply(False, w)
-    assert task._beacon_on is True
-
-    task._apply(True, None)
+    task._apply(False, w)  # observation_active False, beacon window active — sphere still engages
     assert task._sphere_on is True
     assert task._beacon_on is False
     assert pair.relay_code == 0

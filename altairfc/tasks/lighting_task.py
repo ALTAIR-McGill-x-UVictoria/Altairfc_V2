@@ -67,20 +67,25 @@ class LightingTask(BaseTask):
     """
     Two independent behaviors sharing one interlocked LED board:
 
-      * Sphere source: once the observation phase begins (event.ascent_active
-        becomes 1), engages SphereLedSource's current-hold PI loop and never
-        turns it off internally — "do not turn off during the entire
-        observation window" is implemented by NOT having an off-path in
-        execute() at all. The sphere (and the beacon) are only ever turned
-        off by this task being stopped: FlightStageTask calls scheduler
-        .get_task("lighting").stop() at apogee (burst/termination detected,
-        mirroring how it already stops "pointing"), which ends this task's
-        run loop and invokes teardown(), which zeroes both channels.
+      * Sphere source: engages SphereLedSource's current-hold PI loop as soon
+        as this task starts (first execute() after a successful setup()) —
+        NOT gated on event.ascent_active or any other flight-stage event —
+        and never turns it off internally — "do not turn off once started"
+        is implemented by NOT having an off-path in execute() at all. The
+        sphere (and the beacon) are only ever turned off by this task being
+        stopped: FlightStageTask calls scheduler.get_task("lighting").stop()
+        at apogee (burst/termination detected, mirroring how it already
+        stops "pointing"), which ends this task's run loop and invokes
+        teardown(), which zeroes both channels.
 
       * Spotter beacon: strobes on a fixed GPS-UTC schedule (beacon_windows,
         e.g. 5s flashes at :25 and :55 of every minute) whenever the sphere
         isn't on. Brightness (MCP4728 channel 1) is set once; each flash
         toggles the relay (channel 3) on/off — see drivers/beacon_led.py.
+        Since the sphere now latches on at task start rather than at ascent,
+        the beacon effectively never gets a window to flash in a normal run
+        (sphere_on goes true on the very first execute() cycle) — this path
+        is only live if sphere_target_current_a is left unconfigured (None).
 
     The sphere and the beacon's relay are never energized together —
     enforced by drivers.led_board.LedBoard, which both SphereLedSource and
@@ -98,8 +103,9 @@ class LightingTask(BaseTask):
     fallback branch.
 
     DataStore keys read:
-        event.ascent_active          — 1 once ascent is detected; marks the start
-                                        of the sphere's observation window
+        event.ascent_active          — telemetry only (mirrored to lighting.observation_active
+                                        below); no longer gates the sphere, which latches on at
+                                        task start regardless of flight stage
 
     DataStore keys written:
         lighting.sphere_on              (int 0/1)
@@ -190,18 +196,19 @@ class LightingTask(BaseTask):
         self.datastore.write("lighting.next_beacon_flash_in_s", next_in_s)
 
     def _apply(self, observation_active: bool, active_beacon_window: ImagingWindow | None) -> None:
-        # One-shot latch: once the sphere turns on there is no internal path
-        # back off. It only ever stops via this task being stopped (see the
+        # One-shot latch: engages the moment this task starts (no longer
+        # gated on event.ascent_active) and there is no internal path back
+        # off. It only ever stops via this task being stopped (see the
         # class docstring) — teardown() zeroes it unconditionally.
-        if observation_active and not self._sphere_on and self._sphere_target_current_a is not None:
+        if not self._sphere_on and self._sphere_target_current_a is not None:
             self._set_beacon(False)
             self._sphere.hold_current(
                 self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
             )
             self._sphere_on = True
             logger.info(
-                "LightingTask: sphere on (target %.4f A) — will not turn off internally; "
-                "stopped externally at apogee",
+                "LightingTask: sphere on at task start (target %.4f A) — will not turn off "
+                "internally; stopped externally at apogee",
                 self._sphere_target_current_a,
             )
 

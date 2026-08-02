@@ -69,9 +69,10 @@ period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop
                    # Still tight enough for the 5s beacon flash duration below.
 i2c_dev  = "/dev/i2c-1"
 sphere_target_current_a = 0.2657   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
-                                    # Sphere turns on once event.ascent_active becomes 1 and never turns off
-                                    # internally afterward — FlightStageTask stops the "lighting" task entirely
-                                    # at apogee (burst/termination), and teardown() zeroes both LED channels.
+                                    # Sphere turns on as soon as the lighting task starts (not gated on
+                                    # event.ascent_active) and never turns off internally afterward —
+                                    # FlightStageTask stops the "lighting" task entirely at apogee
+                                    # (burst/termination), and teardown() zeroes both LED channels.
 sphere_kp = 3000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
 sphere_ki = 800.0    # confirmed stable against the RF disturbance; drivers/sphere_led.py's own defaults
                       # (2000/400) were untested placeholders, not soak-validated
