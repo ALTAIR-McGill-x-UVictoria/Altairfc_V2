@@ -4,17 +4,29 @@ The board now drives two physically distinct LEDs from the same MCP4728 (0x60):
 
     SPHERE_CHANNEL = 0  (MCP4728 channel A)  -- the integrating-sphere source,
                                                  driven by SphereLedSource
-    BEACON_CHANNEL = 1  (MCP4728 channel B)  -- a separate, non-sphere, high-power
+    BEACON_CHANNEL = 1  (MCP4728 channel B)  -- brightness setpoint for a
+                                                 separate, non-sphere, high-power
                                                  LED used only so ground observers
                                                  can visually spot the payload when
-                                                 the sphere source is too dim to see,
-                                                 driven by BeaconChannel
+                                                 the sphere source is too dim to see.
+                                                 Holding this channel at a nonzero
+                                                 code does NOT itself emit light --
+                                                 see RELAY_CHANNEL.
+    RELAY_CHANNEL  = 3  (MCP4728 channel D)  -- the beacon's actual ON/OFF switch:
+                                                 a 2N2222A-gated relay that connects
+                                                 BEACON_CHANNEL's LED supply, added
+                                                 as a hard fix for RF-coupled gate
+                                                 disturbance (see tests/test_LED_system.py).
+                                                 Code 0 = off, MAX_CODE = on. The
+                                                 beacon LED is only actually energized
+                                                 when this channel is nonzero.
+                                                 Driven by BeaconChannel.
 
-Each channel has its own ADS1115 current-sense input (AIN0 for channel 0, AIN1
-for channel 1 -- see drivers/ads1115.py), but both channels are written through
-the SAME MCP4728 Multi-Write call, which updates all four channels atomically
-from one local codes array (see MCP4728Driver.set_vdd_reference). Two
-independent driver instances against the same chip would silently clobber
+Each of channel 0 and channel 1 has its own ADS1115 current-sense input (AIN0
+and AIN1 respectively -- see drivers/ads1115.py), but all four channels are
+written through the SAME MCP4728 Multi-Write call, which updates them
+atomically from one local codes array (see MCP4728Driver.set_vdd_reference).
+Two independent driver instances against the same chip would silently clobber
 each other's channel on every write. LedBoard is the single writer both
 SphereLedSource and BeaconChannel must share -- never construct two
 independent MCP4728Driver instances against this board.
@@ -22,7 +34,9 @@ independent MCP4728Driver instances against this board.
 Because the sphere source and the beacon must never be energized at the same
 time (especially during a scheduled imaging window -- see tasks/lighting_task.py),
 LedBoard also enforces that interlock in one place: write_channel() refuses to
-energize one of the two interlocked channels while the other is already on.
+energize SPHERE_CHANNEL while RELAY_CHANNEL is on (or vice versa). The
+interlock is keyed on RELAY_CHANNEL, not BEACON_CHANNEL, because BEACON_CHANNEL
+alone never emits light -- only RELAY_CHANNEL does.
 """
 
 from __future__ import annotations
@@ -36,9 +50,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LDAC_PIN = 20  # BCM numbering, physical pin 38
 
-SPHERE_CHANNEL = 0  # MCP4728 channel A
-BEACON_CHANNEL = 1  # MCP4728 channel B
-_INTERLOCKED_CHANNELS = (SPHERE_CHANNEL, BEACON_CHANNEL)
+SPHERE_CHANNEL = 0  # MCP4728 channel A -- sphere source drive current
+BEACON_CHANNEL = 1  # MCP4728 channel B -- beacon brightness setpoint (no light without RELAY_CHANNEL)
+RELAY_CHANNEL  = 3  # MCP4728 channel D -- beacon on/off switch; this is what actually energizes it
+_INTERLOCKED_CHANNELS = (SPHERE_CHANNEL, RELAY_CHANNEL)
 
 
 class InterlockViolation(RuntimeError):
@@ -99,7 +114,7 @@ class LedBoard:
         """Set one channel's DAC code, refusing it if the interlocked partner is on."""
         code = max(0, min(MAX_CODE, int(code)))
         if code > 0 and channel in _INTERLOCKED_CHANNELS:
-            other = BEACON_CHANNEL if channel == SPHERE_CHANNEL else SPHERE_CHANNEL
+            other = RELAY_CHANNEL if channel == SPHERE_CHANNEL else SPHERE_CHANNEL
             if self._codes[other] > 0:
                 raise InterlockViolation(
                     f"refusing to energize channel {channel} (code={code}) while "

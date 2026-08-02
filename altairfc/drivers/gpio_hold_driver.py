@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ _SO_PATH = Path(__file__).parent / "libgpio_hold_driver.so"
 
 
 def _load_lib() -> ctypes.CDLL:
-    lib = ctypes.CDLL(str(_SO_PATH))
+    lib = ctypes.CDLL(str(_SO_PATH), use_errno=True)
 
     lib.gpio_hold_open.restype = ctypes.c_void_p
     lib.gpio_hold_open.argtypes = [ctypes.c_char_p, ctypes.c_uint]
@@ -31,11 +32,16 @@ class GpioHold:
 
     def __init__(self, gpiochip: str, offset: int) -> None:
         self._lib = _load_lib()
+        ctypes.set_errno(0)
         self._handle = self._lib.gpio_hold_open(gpiochip.encode(), offset)
         if not self._handle:
+            err = ctypes.get_errno()
+            reason = os.strerror(err) if err else "unknown error"
             raise OSError(
-                f"gpio_hold_open failed on {gpiochip}:{offset} — "
-                "check gpiochip name and GPIO line number"
+                err,
+                f"gpio_hold_open failed on {gpiochip}:{offset} ({reason}) — "
+                "line may already be requested by another process/overlay, "
+                "the chip name may be wrong, or the offset may be out of range",
             )
         logger.info("GpioHold: holding %s:%d high", gpiochip, offset)
 

@@ -58,23 +58,31 @@ enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
 [tasks.lighting]
-enabled  = false  # PLACEHOLDER — enable once the real window list is confirmed
-period_s = 0.2    # 5 Hz — tight enough relative to the window durations below
+enabled  = false  # PLACEHOLDER — enable once flight-ready
+period_s = 0.2    # 5 Hz — tight enough relative to the 5s beacon flash duration below
 i2c_dev  = "/dev/i2c-1"
 sphere_target_current_a = 0.2657   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
-beacon_dac_code = 1500   # PLACEHOLDER — beacon strobe drive level (0-3000, clamped by BEACON_MAX_SAFE_CODE)
-beacon_on_s     = 0.1    # PLACEHOLDER — strobe on-time (s)
-beacon_off_s    = 0.9    # PLACEHOLDER — strobe off-time (s)
+                                    # Sphere turns on once event.ascent_active becomes 1 and never turns off
+                                    # internally afterward — FlightStageTask stops the "lighting" task entirely
+                                    # at apogee (burst/termination), and teardown() zeroes both LED channels.
+beacon_dac_code = 1500   # PLACEHOLDER — beacon brightness setpoint, MCP4728 channel 1 (0-3000, clamped by
+                          # BEACON_MAX_SAFE_CODE); held constant, each flash below toggles the channel 3 relay
 
 # start_utc is UTC (system-clock) time-of-day "HH:MM:SS"; windows may cross UTC midnight.
 # period_s makes a window recur (default: one day, i.e. a single daily window).
-# Sphere source on for the first 30s of every system-time minute; beacon strobes
-# the other 30s (handled automatically by LightingTask when no window is active).
-[[tasks.lighting.windows]]
-start_utc  = "00:00:00"
-duration_s = 30.0
+# Beacon flashes for 5s at :25 and :55 of every minute, whenever the sphere isn't on
+# (i.e. before the observation window starts and after this task is stopped at apogee).
+[[tasks.lighting.beacon_windows]]
+start_utc  = "00:00:25"
+duration_s = 5.0
 period_s   = 60.0
-label      = "per_minute"
+label      = "beacon_25"
+
+[[tasks.lighting.beacon_windows]]
+start_utc  = "00:00:55"
+duration_s = 5.0
+period_s   = 60.0
+label      = "beacon_55"
 
 [datalogger]
 log_root = "logs"   # relative to altairfc/; absolute paths also accepted

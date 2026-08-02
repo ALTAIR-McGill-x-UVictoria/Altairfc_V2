@@ -46,25 +46,24 @@ def test_seconds_to_window_midnight_wraparound():
 
 
 def test_window_active_recurring_period():
-    """period_s=60 recurs every minute: on for the first 30s, off for the last 30s."""
-    w = ImagingWindow(start_s=0.0, duration_s=30.0, period_s=60.0)
-    assert window_active(0.0, w)
+    """period_s=60 recurs every minute, e.g. a 5s flash at :25."""
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
+    assert not window_active(24.9, w)
+    assert window_active(25.0, w)
     assert window_active(29.9, w)
     assert not window_active(30.0, w)
-    assert not window_active(59.9, w)
-    assert window_active(60.0, w)      # wraps to the next minute
-    assert window_active(125.0, w)     # 2nd minute, 5s in
+    assert window_active(85.0, w)      # wraps to the next minute
 
 
 def test_seconds_to_window_recurring_period():
-    w = ImagingWindow(start_s=0.0, duration_s=30.0, period_s=60.0)
-    assert seconds_to_window(30.0, w) == pytest.approx(30.0)
-    assert seconds_to_window(45.0, w) == pytest.approx(15.0)
-    assert seconds_to_window(0.0, w) == 0.0
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
+    assert seconds_to_window(30.0, w) == pytest.approx(55.0)
+    assert seconds_to_window(20.0, w) == pytest.approx(5.0)
+    assert seconds_to_window(25.0, w) == 0.0
 
 
 def test_parse_windows_period_s():
-    raw = [{"start_utc": "00:00:00", "duration_s": 30.0, "period_s": 60.0, "label": "per_minute"}]
+    raw = [{"start_utc": "00:00:25", "duration_s": 5.0, "period_s": 60.0, "label": "beacon_25"}]
     windows = parse_windows(raw)
     assert windows[0].period_s == 60.0
 
@@ -94,11 +93,11 @@ def test_parse_windows_default_label():
 # ---------------------------------------------------------------------------
 
 class _FakeInterlockedPair:
-    """Mimics drivers.led_board.LedBoard's interlock for two fake channel objects."""
+    """Mimics drivers.led_board.LedBoard's interlock (sphere vs. relay) for two fake channel objects."""
 
     def __init__(self) -> None:
         self.sphere_code = 0
-        self.beacon_code = 0
+        self.relay_code = 0
 
 
 class _FakeSphere:
@@ -112,8 +111,8 @@ class _FakeSphere:
         self.target_current_a = target_a
 
     def update(self) -> None:
-        if self._pair.beacon_code > 0:
-            raise InterlockViolation("beacon on")
+        if self._pair.relay_code > 0:
+            raise InterlockViolation("beacon relay on")
         self._pair.sphere_code = 1   # stand-in for "DAC is now driving toward target"
 
     def all_off(self) -> None:
@@ -122,20 +121,30 @@ class _FakeSphere:
 
 
 class _FakeBeacon:
+    """Mimics BeaconChannel's brightness (ch1, not interlocked) + on()/off() (ch3 relay, interlocked)."""
+
     def __init__(self, pair: _FakeInterlockedPair) -> None:
         self._pair = pair
+        self.brightness_code = 0
 
-    def set_code(self, code: int) -> None:
+    def set_brightness(self, code: int) -> None:
+        self.brightness_code = code
+
+    def on(self) -> None:
         if self._pair.sphere_code > 0:
             raise InterlockViolation("sphere on")
-        self._pair.beacon_code = code
+        self._pair.relay_code = 1
+
+    def off(self) -> None:
+        self._pair.relay_code = 0
 
     def all_off(self) -> None:
-        self._pair.beacon_code = 0
+        self.brightness_code = 0
+        self._pair.relay_code = 0
 
 
 def _make_task(**kwargs) -> tuple[LightingTask, _FakeInterlockedPair]:
-    task = LightingTask("lighting", 0.2, DataStore(), windows=[], **kwargs)
+    task = LightingTask("lighting", 0.2, DataStore(), beacon_windows=[], **kwargs)
     pair = _FakeInterlockedPair()
     task._board = object()  # only needs to be non-None; _apply() doesn't touch it directly
     task._sphere = _FakeSphere(pair)
@@ -143,69 +152,83 @@ def _make_task(**kwargs) -> tuple[LightingTask, _FakeInterlockedPair]:
     return task, pair
 
 
-def test_apply_turns_sphere_on_and_forces_beacon_off_during_window():
+def test_apply_turns_sphere_on_when_observation_active():
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
-    w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
 
-    task._apply(w)
+    task._apply(True, None)
 
     assert task._sphere_on is True
     assert task._beacon_on is False
     assert task._sphere.target_current_a == pytest.approx(0.2657)
     assert pair.sphere_code != 0
-    assert pair.beacon_code == 0
+    assert pair.relay_code == 0
 
 
-def test_apply_resumes_beacon_strobe_outside_window():
+def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
+    """Per project decision: no internal apogee check — once on, only task teardown turns it off."""
+    task, pair = _make_task(sphere_target_current_a=0.2657)
+
+    task._apply(True, None)
+    assert task._sphere_on is True
+
+    task._apply(False, None)
+    assert task._sphere_on is True
+    assert pair.sphere_code != 0
+
+
+def test_apply_strobes_beacon_in_window_before_observation_starts():
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
-    task._apply(None)
+    task._apply(False, w)
 
     assert task._sphere_on is False
     assert task._beacon_on is True
-    assert pair.beacon_code == 777
+    assert pair.relay_code == 1
+
+
+def test_apply_leaves_beacon_off_outside_window():
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+
+    task._apply(False, None)
+
+    assert task._beacon_on is False
+    assert pair.relay_code == 0
 
 
 def test_apply_leaves_sphere_off_when_no_target_current_configured():
     """Per project decision: an unconfigured sphere_target_current_a must never guess a value."""
     task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
-    w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
-    task._apply(w)
+    task._apply(True, w)
 
     assert task._sphere_on is False
     assert task._beacon_on is True
     assert pair.sphere_code == 0
 
 
-def test_apply_turns_sphere_off_when_window_ends():
-    task, pair = _make_task(sphere_target_current_a=0.2657)
-    w = ImagingWindow(start_s=0.0, duration_s=10.0, label="w")
+def test_apply_forces_beacon_off_once_sphere_engages():
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
-    task._apply(w)
+    task._apply(False, w)
+    assert task._beacon_on is True
+
+    task._apply(True, None)
     assert task._sphere_on is True
+    assert task._beacon_on is False
+    assert pair.relay_code == 0
 
-    task._apply(None)
-    assert task._sphere_on is False
+
+def test_teardown_zeroes_sphere_and_beacon_including_relay():
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+    task._apply(True, None)
+    assert pair.sphere_code != 0
+
+    task._board = None  # avoid LedBoard.close() touching the fake board object
+    task.teardown()
+
     assert pair.sphere_code == 0
-
-
-def test_strobe_toggles_after_configured_durations():
-    task, pair = _make_task(beacon_dac_code=42, beacon_on_s=1.0, beacon_off_s=2.0)
-
-    task._advance_strobe(0.0)
-    assert task._strobe_on is True
-    assert pair.beacon_code == 42
-
-    task._advance_strobe(0.5)
-    assert task._strobe_on is True  # still inside the on-phase
-
-    task._advance_strobe(1.5)
-    assert task._strobe_on is False  # on-phase (1.0s) elapsed
-    assert pair.beacon_code == 0
-
-    task._advance_strobe(3.0)
-    assert task._strobe_on is False  # still inside the 2.0s off-phase
-
-    task._advance_strobe(3.6)
-    assert task._strobe_on is True  # off-phase elapsed, back on
+    assert pair.relay_code == 0
+    assert task._beacon.brightness_code == 0

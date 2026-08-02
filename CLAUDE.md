@@ -107,7 +107,7 @@ Key config sections:
 | `system.*` | TelemetryTask (heartbeat helpers) | CPU load, uptime, PPS offset |
 | `power.*` | PowerTask | Battery voltage/current |
 | `photodiode.*` | PhotodiodeTask | Optical sensor readings |
-| `lighting.*` | LightingTask | Sphere source / spotter beacon interlock + GPS-UTC imaging window state |
+| `lighting.*` | LightingTask | Sphere source / spotter beacon interlock; sphere on latched at ascent, beacon strobes GPS-UTC windows |
 
 ### Hardware Stubs
 

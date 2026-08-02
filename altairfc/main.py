@@ -274,12 +274,10 @@ def main() -> None:
             name="lighting",
             period_s=config.tasks["lighting"].period_s,
             datastore=datastore,
-            windows=config.tasks["lighting"].extra.get("windows", []),
+            beacon_windows=config.tasks["lighting"].extra.get("beacon_windows", []),
             i2c_dev=config.tasks["lighting"].extra.get("i2c_dev", "/dev/i2c-1"),
             sphere_target_current_a=config.tasks["lighting"].extra.get("sphere_target_current_a"),
             beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
-            beacon_on_s=config.tasks["lighting"].extra.get("beacon_on_s", 0.1),
-            beacon_off_s=config.tasks["lighting"].extra.get("beacon_off_s", 0.9),
         )
     )
 

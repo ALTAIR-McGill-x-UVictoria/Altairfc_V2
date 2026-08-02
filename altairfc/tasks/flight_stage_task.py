@@ -565,13 +565,19 @@ class FlightStageTask(BaseTask):
     # ------------------------------------------------------------------
 
     def _stop_motor_tasks(self) -> None:
+        """Stop the pointing motor and lighting tasks at apogee (burst/termination).
+
+        "lighting" has no internal apogee check of its own — this is the
+        trigger that ends its run loop (see tasks/lighting_task.py), and its
+        teardown() is what actually zeroes the sphere/beacon DAC channels.
+        """
         if self._scheduler is None:
             return
-        task_name = "pointing"
-        task = self._scheduler.get_task(task_name)
-        if task is not None and task.is_alive:
-            logger.info("FlightStageTask: stopping %s", task_name)
-            task.stop()
+        for task_name in ("pointing", "lighting"):
+            task = self._scheduler.get_task(task_name)
+            if task is not None and task.is_alive:
+                logger.info("FlightStageTask: stopping %s", task_name)
+                task.stop()
 
     def _write_flag(self, key: str, value: int) -> None:
         """Write event.{key} to DataStore only if the value changed."""
