@@ -145,7 +145,7 @@ top_n = 5
 minimum_cpu_pct = 1.0
 
 [ground_station]
-use_hardcoded = true   # true: always use lat/lon/alt below; false: use GS GPS command if received
+use_hardcoded = false   # true: always use lat/lon/alt below; false: use GS GPS command if received
 latitude = 45.49446
 longitude = -73.55218
 altitude = 55.0

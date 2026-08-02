@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -140,6 +141,13 @@ class LightingTask(BaseTask):
         self._sphere_on = False
         self._beacon_on = False
 
+        # Sphere current-loop rate instrumentation: logs the achieved
+        # sphere.update() call rate once/sec so a mismatch between the
+        # configured period_s and what the I2C bus can actually sustain is
+        # visible in flight.log rather than assumed.
+        self._loop_iters = 0
+        self._loop_rate_log_t = 0.0
+
     def setup(self) -> None:
         try:
             import smbus2
@@ -201,10 +209,26 @@ class LightingTask(BaseTask):
             self._set_beacon(False)
             try:
                 self._sphere.update()
+                self._log_loop_rate()
             except InterlockViolation:
                 logger.error("LightingTask: sphere current-hold step blocked by interlock — beacon did not turn off")
         else:
             self._set_beacon(active_beacon_window is not None)
+
+    def _log_loop_rate(self) -> None:
+        self._loop_iters += 1
+        now = time.monotonic()
+        if self._loop_rate_log_t == 0.0:
+            self._loop_rate_log_t = now
+            return
+        elapsed = now - self._loop_rate_log_t
+        if elapsed >= 1.0:
+            logger.info(
+                "LightingTask: sphere loop running at %.1f Hz (%d updates/%.2fs)",
+                self._loop_iters / elapsed, self._loop_iters, elapsed,
+            )
+            self._loop_iters = 0
+            self._loop_rate_log_t = now
 
     def _set_beacon(self, on: bool) -> None:
         if on == self._beacon_on:
