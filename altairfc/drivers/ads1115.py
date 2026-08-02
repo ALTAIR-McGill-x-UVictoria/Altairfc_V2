@@ -36,7 +36,13 @@ MUX_SINGLE = {0: 0b100, 1: 0b101, 2: 0b110, 3: 0b111}
 MUX_DIFF_2_3 = 0b011  # AIN2-AIN3: thermistor bridge
 
 DR_128SPS = 0b100
+DR_860SPS = 0b111  # fastest one-shot rate; used for oversampled current-loop reads
 _COMP_QUE_DISABLE = 0b11
+
+_DR_SPS = {
+    0b000: 8, 0b001: 16, 0b010: 32, 0b011: 64,
+    0b100: 128, 0b101: 250, 0b110: 475, 0b111: 860,
+}
 
 # gain key -> (PGA register bits, full-scale range in volts)
 GAIN_FSR = {
@@ -117,7 +123,7 @@ class Ads1115:
 
         self._bus.write_i2c_block_data(self._addr, REG_CONFIG, [(cfg >> 8) & 0xFF, cfg & 0xFF])
 
-        time.sleep((1.0 / 128) * 1.5)
+        time.sleep((1.0 / _DR_SPS[data_rate]) * 1.5)
         deadline = time.monotonic() + 0.5
         while time.monotonic() < deadline:
             raw = self._bus.read_i2c_block_data(self._addr, REG_CONFIG, 2)
@@ -155,3 +161,33 @@ class Ads1115:
         channel 0 = sphere source (MCP4728 A), channel 1 = spotter beacon (MCP4728 B).
         """
         return self.read_single_ended(channel, gain=gain) / sense_resistor_ohm
+
+    def read_current_a_oversampled(
+        self,
+        channel: int = 0,
+        sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
+        gain: int = 2,
+        oversample: int = 16,
+    ) -> float:
+        """Trimmed-mean current reading over `oversample` 860 SPS conversions, in amps.
+
+        The RF transceiver induces a persistent, broadband disturbance onto the
+        LED MOSFET gate drive -- present on nearly every raw sample, not
+        occasional spikes -- that a single one-shot conversion (read_current_a)
+        mostly passes straight through to a control loop. Averaging several 860
+        SPS conversions, dropping the highest/lowest so one corrupted I2C read
+        can't skew the mean, is what actually rejects it (see the closed-loop
+        notes in tests/test_LED_system.py, the origin of this approach).
+        """
+        if channel not in MUX_SINGLE:
+            raise ValueError(f"channel must be 0-3, got {channel}")
+        volts_samples = [
+            self.read_volts(MUX_SINGLE[channel], gain=gain, data_rate=DR_860SPS)
+            for _ in range(max(1, oversample))
+        ]
+        if len(volts_samples) >= 5:
+            volts_samples.sort()
+            trim = max(1, len(volts_samples) // 8)
+            volts_samples = volts_samples[trim: len(volts_samples) - trim]
+        avg_v = sum(volts_samples) / len(volts_samples)
+        return avg_v / sense_resistor_ohm
