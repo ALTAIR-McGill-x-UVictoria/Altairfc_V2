@@ -1,7 +1,7 @@
 """
 INA3221 hardware verification script.
 
-Runs directly on the Pi with the INA3221 wired at I2C address 0x40.
+Runs directly on the Pi with the INA3221 wired at I2C address 0x41.
 Requires libina3221_driver.so to be built first:
     bash altairfc/drivers/build_ina3221.sh
 
@@ -14,7 +14,7 @@ Channel map:
     CH3 →  5 V rail
 
 Checks performed:
-    1. Device responds at 0x40
+    1. Device responds at 0x41
     2. Manufacturer ID reads 0x5449 ("TI")
     3. Die ID reads 0x2210 (INA3221)
     4. Config register round-trip (write then read back)
@@ -26,7 +26,7 @@ import argparse
 import sys
 import time
 
-ADDR        = 0x40
+ADDR        = 0x41
 REG_CONFIG  = 0x00
 REG_MANUF   = 0xFE
 REG_DIE     = 0xFF

@@ -164,6 +164,21 @@ class LightingTask(BaseTask):
         self._loop_settled_count = 0
 
     def setup(self) -> None:
+        # _sphere_on/_beacon_on must be reset here, not just in __init__: if execute() ever
+        # raises (e.g. a transient I2C fault), core/task_base.py restarts this task, which
+        # calls setup() again and builds a brand-new SphereLedSource/BeaconChannel — but
+        # without this reset, the one-shot latch in _apply() would see _sphere_on already
+        # True from before the restart and never call hold_current() on the new object,
+        # leaving it silently spinning at code 0 with no target forever (looked, in the log,
+        # like a healthy loop running at speed with target=nan and code=0).
+        self._sphere_on = False
+        self._beacon_on = False
+        self._loop_iters = 0
+        self._loop_rate_log_t = 0.0
+        self._loop_current_min = float("inf")
+        self._loop_current_max = float("-inf")
+        self._loop_current_sum = 0.0
+        self._loop_settled_count = 0
         try:
             import smbus2
             self._bus = smbus2.SMBus(int(self._i2c_dev.replace("/dev/i2c-", "")))

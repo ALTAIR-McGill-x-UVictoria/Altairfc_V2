@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from core.datastore import DataStore
@@ -237,3 +240,40 @@ def test_teardown_zeroes_sphere_and_beacon_including_relay():
     assert pair.sphere_code == 0
     assert pair.relay_code == 0
     assert task._beacon.brightness_code == 0
+
+
+def test_setup_resets_sphere_on_and_beacon_on_across_restarts(monkeypatch):
+    """Regression test: core/task_base.py restarts a task (calls setup() again) after execute()
+    raises (e.g. a transient I2C fault). setup() builds a brand-new SphereLedSource/BeaconChannel
+    every time — if _sphere_on/_beacon_on weren't reset here too, the one-shot latch in _apply()
+    would see _sphere_on already True from before the restart and never call hold_current() on
+    the new object, leaving it silently spinning forever with no target (code stuck at 0,
+    target_current_a stuck at None) while looking, from the loop-rate log alone, like a healthy
+    running loop."""
+    import tasks.lighting_task as lighting_task_module
+
+    monkeypatch.setattr(lighting_task_module, "LedBoard", lambda **kwargs: object())
+    monkeypatch.setattr(lighting_task_module, "SphereLedSource", lambda **kwargs: object())
+
+    class _StubBeacon:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def set_brightness(self, code: int) -> None:
+            pass
+
+    monkeypatch.setattr(lighting_task_module, "BeaconChannel", _StubBeacon)
+
+    fake_smbus2 = types.ModuleType("smbus2")
+    fake_smbus2.SMBus = lambda *a, **k: object()
+    monkeypatch.setitem(sys.modules, "smbus2", fake_smbus2)
+
+    task = LightingTask("lighting", 0.2, DataStore(), beacon_windows=[], sphere_target_current_a=0.2657)
+    task.setup()
+    task._sphere_on = True   # simulate a prior run having already latched the sphere on
+    task._beacon_on = True
+
+    task.setup()  # simulates the task restarting after execute() raised
+
+    assert task._sphere_on is False
+    assert task._beacon_on is False
