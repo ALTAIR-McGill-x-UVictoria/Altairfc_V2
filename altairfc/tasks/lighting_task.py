@@ -10,7 +10,7 @@ from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BeaconChannel
 from drivers.led_board import InterlockViolation, LedBoard
-from drivers.sphere_led import SphereLedSource
+from drivers.sphere_led import LedState, SphereLedSource
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +147,16 @@ class LightingTask(BaseTask):
         self._sphere_on = False
         self._beacon_on = False
 
-        # Sphere current-loop rate instrumentation: logs the achieved
-        # sphere.update() call rate once/sec so a mismatch between the
-        # configured period_s and what the I2C bus can actually sustain is
-        # visible in flight.log rather than assumed.
+        # Sphere current-loop instrumentation: logs the achieved sphere.update()
+        # rate plus the current spread seen each second, so both "is the loop
+        # running fast enough" and "is it actually settling" are visible in
+        # flight.log rather than assumed.
         self._loop_iters = 0
         self._loop_rate_log_t = 0.0
+        self._loop_current_min = float("inf")
+        self._loop_current_max = float("-inf")
+        self._loop_current_sum = 0.0
+        self._loop_settled_count = 0
 
     def setup(self) -> None:
         try:
@@ -215,26 +219,45 @@ class LightingTask(BaseTask):
         if self._sphere_on:
             self._set_beacon(False)
             try:
-                self._sphere.update()
-                self._log_loop_rate()
+                state = self._sphere.update()
+                self._log_loop_stats(state)
             except InterlockViolation:
                 logger.error("LightingTask: sphere current-hold step blocked by interlock — beacon did not turn off")
         else:
             self._set_beacon(active_beacon_window is not None)
 
-    def _log_loop_rate(self) -> None:
+    def _log_loop_stats(self, state: LedState) -> None:
+        """Once/sec, log the achieved update() rate plus the current spread seen within that
+        window (min/max/mean vs. target) — the rate alone (previously all this logged) says
+        nothing about whether the loop is actually settling or oscillating around target."""
         self._loop_iters += 1
+        self._loop_current_min = min(self._loop_current_min, state.current_a)
+        self._loop_current_max = max(self._loop_current_max, state.current_a)
+        self._loop_current_sum += state.current_a
+        if state.settled:
+            self._loop_settled_count += 1
+
         now = time.monotonic()
         if self._loop_rate_log_t == 0.0:
             self._loop_rate_log_t = now
             return
         elapsed = now - self._loop_rate_log_t
         if elapsed >= 1.0:
+            mean_a = self._loop_current_sum / self._loop_iters
             logger.info(
-                "LightingTask: sphere loop running at %.1f Hz (%d updates/%.2fs)",
+                "LightingTask: sphere loop %.1f Hz (%d updates/%.2fs) — target=%.4f A "
+                "mean=%.4f A min=%.4f A max=%.4f A spread=%.4f A settled=%d/%d code=%d",
                 self._loop_iters / elapsed, self._loop_iters, elapsed,
+                state.target_current_a if state.target_current_a is not None else float("nan"),
+                mean_a, self._loop_current_min, self._loop_current_max,
+                self._loop_current_max - self._loop_current_min,
+                self._loop_settled_count, self._loop_iters, state.code,
             )
             self._loop_iters = 0
+            self._loop_current_min = float("inf")
+            self._loop_current_max = float("-inf")
+            self._loop_current_sum = 0.0
+            self._loop_settled_count = 0
             self._loop_rate_log_t = now
 
     def _set_beacon(self, on: bool) -> None:

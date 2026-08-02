@@ -4,6 +4,7 @@ import pytest
 
 from core.datastore import DataStore
 from drivers.led_board import InterlockViolation
+from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
     LightingTask,
@@ -114,10 +115,17 @@ class _FakeSphere:
         self.kp = kp
         self.ki = ki
 
-    def update(self) -> None:
+    def update(self) -> LedState:
         if self._pair.relay_code > 0:
             raise InterlockViolation("beacon relay on")
         self._pair.sphere_code = 1   # stand-in for "DAC is now driving toward target"
+        return LedState(
+            code=self._pair.sphere_code,
+            current_a=self.target_current_a or 0.0,
+            temperature_c=20.0,
+            target_current_a=self.target_current_a,
+            settled=True,
+        )
 
     def all_off(self) -> None:
         self.target_current_a = None
