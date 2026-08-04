@@ -80,6 +80,12 @@ class LedBoard:
         i2c_dev: str = "/dev/i2c-1",
     ) -> None:
         self._codes = [0] * NUM_CHANNELS
+        # RELAY_CHANNEL's off code is MAX_CODE, not 0 -- see RELAY_CODE_BEACON_OFF above.
+        # Leaving it at the same 0 every other channel starts at would energize the NC-wired
+        # beacon relay's rest state (de-energized = lit) the moment this board is constructed,
+        # and nothing would correct it until a real _set_beacon() state transition happened —
+        # confirmed on hardware 2026-08-03 as the cause of the beacon appearing permanently on.
+        self._codes[RELAY_CHANNEL] = RELAY_CODE_BEACON_OFF
         self._dac = dac if dac is not None else MCP4728Driver(i2c_dev)
         self._ads = ads1115 if ads1115 is not None else Ads1115(bus)
 

@@ -23,6 +23,16 @@ def _make_board() -> tuple[LedBoard, _FakeDac]:
     return board, dac
 
 
+def test_construction_leaves_beacon_relay_off_not_on():
+    """Regression test: LedBoard.__init__() used to zero-initialize every channel including
+    RELAY_CHANNEL, which — since the relay is wired NC — actually left the beacon ON (lit) from
+    the moment the board was constructed, undetected until a real _set_beacon() state change
+    happened to occur. Confirmed on hardware 2026-08-03."""
+    board, dac = _make_board()
+    assert board.code(RELAY_CHANNEL) == MAX_CODE
+    assert dac.writes[0][RELAY_CHANNEL] == MAX_CODE
+
+
 def test_write_channel_updates_code():
     board, dac = _make_board()
     board.write_channel(SPHERE_CHANNEL, 500)
