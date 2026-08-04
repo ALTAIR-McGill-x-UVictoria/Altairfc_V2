@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=notify
-WorkingDirectory=/home/pi/Altairfc_V2/altairfc
+WorkingDirectory=/home/altairfc/ALTAIR_FC_V2/altairfc
 Environment=TZ=UTC
-ExecStart=/usr/bin/python3 main.py
+ExecStart=/home/altairfc/.local/lib/miniconda3/bin/python3 main.py
 Restart=on-failure
 RestartSec=5
 NotifyAccess=main
