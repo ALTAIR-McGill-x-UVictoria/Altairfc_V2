@@ -534,10 +534,12 @@ class FlightStageTask(BaseTask):
         failures: list[str] = []
 
         if req.gps:
-            gps_valid  = int(self.datastore.read("gps.valid",  default=0))
-            gps_num_sv = int(self.datastore.read("gps.num_sv", default=0))
-            if not gps_valid or gps_num_sv < _GPS_MIN_SV:
-                failures.append(f"gps_no_fix(sv={gps_num_sv})")
+            # Uses the MAVLink GPS fix (GPS_RAW_INT via Pixhawk) — the local u-blox
+            # GpsTask is a redundant/backup source and is not required to arm.
+            gps_fix_type = int(self.datastore.read("mavlink.gps.fix_type", default=0))
+            gps_num_sv   = int(self.datastore.read("mavlink.gps.num_sv",   default=0))
+            if gps_fix_type < 3 or gps_num_sv < _GPS_MIN_SV:
+                failures.append(f"gps_no_fix(fix_type={gps_fix_type},sv={gps_num_sv})")
 
         # Neutral orientation — low yaw rate (always required)
         # yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=999.0)))

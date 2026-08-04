@@ -39,6 +39,7 @@ class MavlinkTask(BaseTask):
         mavlink.gps.relative_alt     (float, m)     — above home, from LOCAL_POSITION_NED (-z)
         mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360, from GPS_RAW_INT
         mavlink.gps.num_sv           (int)          — satellites visible, from GPS_RAW_INT
+        mavlink.gps.fix_type         (int)          — 0=no GPS 1=no fix 2=2D 3=3D 4=DGPS 5/6=RTK, from GPS_RAW_INT
         mavlink.heading              (float, deg)   — dual-antenna yaw 0-360, from GPS2_RAW (only written when valid)
         mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
         mavlink.environment.press_diff   (float, hPa)
@@ -178,6 +179,7 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3))
             self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2))
             self.datastore.write("mavlink.gps.num_sv", int(msg.satellites_visible))
+            self.datastore.write("mavlink.gps.fix_type", int(msg.fix_type))
 
         # elif msg_type == "GPS2_RAW":
         #     # yaw in cdeg from dual-antenna RTK source; 0 = unavailable, 65535 = no fix yet
