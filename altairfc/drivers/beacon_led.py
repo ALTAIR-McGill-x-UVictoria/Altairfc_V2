@@ -17,6 +17,15 @@ dim to see. Two MCP4728 channels are involved (0x60), with different jobs:
 Flashing the beacon is therefore: set_brightness() once, then on()/off() to
 toggle the relay for each flash -- not repeated set_brightness() calls.
 
+on()/off() never let the relay's contacts make or break while current is
+flowing through the LED. Closing the relay while channel 1 is already at its
+brightness setpoint hot-switches the contacts onto a live circuit -- the same
+family of transient (arcing, RF/EMI injection) this relay was added to
+eliminate in the first place. Instead, on() forces channel 1 to 0, energizes
+the relay onto a currentless circuit, waits for the contact to physically
+settle, then ramps brightness up quickly; off() ramps brightness back down to
+0 before de-energizing the relay, so the break happens currentless too.
+
 Current sense is on ADS1115 AIN1, across its own 3 ohm (nominal) sense
 resistor -- a different value from the sphere's 2.2 ohm on AIN0 (see
 tests/test_LED_system.py's CURRENT_SENSE_RESISTOR_OHM); do not reuse
@@ -43,6 +52,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import time
 
 from drivers.led_board import (
     BEACON_CHANNEL,
@@ -63,6 +73,20 @@ BEACON_MAX_SAFE_CODE = 3000
 # the sphere's (drivers.ads1115.SENSE_RESISTOR_OHM = 2.2 ohm, channel 0 only).
 BEACON_SENSE_RESISTOR_OHM = 3.0
 
+# Time given to the relay's contact to physically close before any brightness
+# current is asked to flow through it. RY5W-K's typical operate time is a few
+# ms; this is a margin on top of that, not a measured value -- if hardware
+# testing shows the beacon still flickers right at turn-on, increase this
+# first.
+RELAY_SETTLE_S = 0.008
+
+# Total time (and step count) to move brightness between 0 and its setpoint
+# once the relay contact is settled. Deliberately short -- "ramp" here is
+# about softening the current step at the now-closed contact, not a visible
+# fade; it must stay short relative to the beacon's flash on-time.
+BRIGHTNESS_RAMP_S = 0.008
+BRIGHTNESS_RAMP_STEPS = 4
+
 
 class BeaconChannel:
     """Open-loop drive for the external spotter LED: brightness (ch 1) + relay on/off (ch 3)."""
@@ -70,6 +94,11 @@ class BeaconChannel:
     def __init__(self, *, board: LedBoard, sense_resistor_ohm: float = BEACON_SENSE_RESISTOR_OHM) -> None:
         self._board = board
         self._sense_resistor_ohm = sense_resistor_ohm
+        # The brightness setpoint survives independently of channel 1's live DAC
+        # code, because on()/off() deliberately drive channel 1 to 0 around each
+        # relay transition (see module docstring) -- self.code alone can't be
+        # used to recover "what brightness should this come back on at".
+        self._target_brightness = 0
 
     @property
     def code(self) -> int:
@@ -81,23 +110,50 @@ class BeaconChannel:
         return self._board.code(RELAY_CHANNEL) == RELAY_CODE_BEACON_ON
 
     def set_brightness(self, code: int) -> None:
-        """Hold the beacon's brightness setpoint (channel 1), clamped to BEACON_MAX_SAFE_CODE.
+        """Set the beacon's brightness setpoint, clamped to BEACON_MAX_SAFE_CODE.
 
-        This alone does not energize the LED — see on()/off().
+        This alone does not energize the LED — see on()/off(). If the beacon is
+        already lit, applies immediately; otherwise takes effect the next time
+        on() is called (channel 1 stays at 0 while dark — see module docstring).
         """
-        self._board.write_channel(BEACON_CHANNEL, max(0, min(BEACON_MAX_SAFE_CODE, int(code))))
+        self._target_brightness = max(0, min(BEACON_MAX_SAFE_CODE, int(code)))
+        if self.lit:
+            self._board.write_channel(BEACON_CHANNEL, self._target_brightness)
 
     def on(self) -> None:
-        """Turn the beacon LED on — energizes the relay (channel 3); see RELAY_CODE_BEACON_ON."""
+        """Turn the beacon LED on.
+
+        Energizes the relay (channel 3) onto a currentless circuit, then ramps
+        channel 1 up to its brightness setpoint — see module docstring for why.
+        """
+        self._board.write_channel(BEACON_CHANNEL, 0)
         self._board.write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_ON)
+        time.sleep(RELAY_SETTLE_S)
+        self._ramp_brightness(0, self._target_brightness)
 
     def off(self) -> None:
-        """Turn the beacon LED off — de-energizes the relay (channel 3); see RELAY_CODE_BEACON_OFF.
-        Leaves the brightness setpoint (channel 1) untouched."""
+        """Turn the beacon LED off.
+
+        Ramps channel 1 back down to 0 before de-energizing the relay (channel
+        3), so the contact breaks currentless too — see module docstring.
+        """
+        self._ramp_brightness(self.code, 0)
         self._board.write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_OFF)
+
+    def _ramp_brightness(
+        self, start: int, end: int, *, ramp_s: float = BRIGHTNESS_RAMP_S, steps: int = BRIGHTNESS_RAMP_STEPS
+    ) -> None:
+        if start == end:
+            return
+        dt = ramp_s / steps
+        for i in range(1, steps + 1):
+            self._board.write_channel(BEACON_CHANNEL, round(start + (end - start) * i / steps))
+            if i < steps:
+                time.sleep(dt)
 
     def all_off(self) -> None:
         """Zero the brightness setpoint (channel 1) and turn the beacon LED off (channel 3)."""
+        self._target_brightness = 0
         self._board.all_off(BEACON_CHANNEL)
         self._board.all_off(RELAY_CHANNEL)
 
