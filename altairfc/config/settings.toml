@@ -6,6 +6,15 @@ baud = 115200
 port = "auto"   # "auto": detect CP210x (LR-900p); explicit: "/dev/ttyUSB0"; "none": disable radio
 baud = 57600
 
+[telemetry_tee]
+# Mirrors every byte written to the LR-900p radio out over a plain TCP
+# socket, so a ground station can read the same telemetry over the network
+# (e.g. a ZeroTier tunnel) when RF is unavailable but this Pi has internet.
+# Off by default — enable only if you've set up a tunnel to reach this port.
+enabled = false
+host = "0.0.0.0"
+port = 5760
+
 [tasks.mavlink]
 enabled = true
 period_s = 0.02   # 50 Hz

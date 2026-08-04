@@ -70,6 +70,7 @@ from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
+from telemetry.tee_server import TeeServer
 from tasks.pitch_task import PitchTask
 from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
@@ -179,10 +180,19 @@ def main() -> None:
         )
     )
 
+    telemetry_tee_server: TeeServer | None = None
     if config.telemetry is not None:
+        if config.telemetry_tee.enabled:
+            telemetry_tee_server = TeeServer(
+                host=config.telemetry_tee.host,
+                port=config.telemetry_tee.port,
+            )
+            telemetry_tee_server.start()
+
         telemetry_transport = SerialTransport(
             port=config.telemetry.port,
             baud=config.telemetry.baud,
+            tee=telemetry_tee_server,
         )
         scheduler.register(
             TelemetryTask(
@@ -312,6 +322,8 @@ def main() -> None:
     watchdog.stop()
     scheduler.stop_all()
     buzzer.stop()
+    if telemetry_tee_server is not None:
+        telemetry_tee_server.stop()
     logger.info("ALTAIR V2 shutdown complete")
 
 

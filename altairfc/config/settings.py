@@ -120,6 +120,19 @@ class RadioConfig:
 
 
 @dataclass
+class TelemetryTeeConfig:
+    """
+    Optional TCP mirror of the radio byte stream, for a ground station to
+    reach over the network (e.g. a ZeroTier tunnel) when RF is unavailable
+    but this Pi has internet. Off by default.
+    """
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 5760
+
+
+@dataclass
 class GroundStationConfig:
     latitude: float
     longitude: float
@@ -150,6 +163,7 @@ class SystemConfig:
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
     )
     radio_config: RadioConfig = field(default_factory=RadioConfig)
+    telemetry_tee: TelemetryTeeConfig = field(default_factory=TelemetryTeeConfig)
     profiling: ProfilingConfig = field(default_factory=ProfilingConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
@@ -247,6 +261,13 @@ class SystemConfig:
             rate_scale=rc_raw.get("rate_scale",         [0.1, 0.33, 1.0]),
         )
 
+        tee_raw = data.get("telemetry_tee", {})
+        telemetry_tee = TelemetryTeeConfig(
+            enabled=tee_raw.get("enabled", False),
+            host=tee_raw.get("host", "0.0.0.0"),
+            port=tee_raw.get("port", 5760),
+        )
+
         profiling_raw = data.get("profiling", {})
         profiling = ProfilingConfig(
             enabled=profiling_raw.get("enabled", False),
@@ -265,6 +286,7 @@ class SystemConfig:
             pointing=pointing,
             ground_station=ground_station,
             radio_config=radio_config,
+            telemetry_tee=telemetry_tee,
             profiling=profiling,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s"),

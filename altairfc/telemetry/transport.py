@@ -21,6 +21,7 @@ from drivers.lr900p import (
     SUBBLOCK_READ,
     SUBBLOCK_WRITE,
 )
+from telemetry.tee_server import TeeServer
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,15 @@ class SerialTransport:
       wait_until_open(timeout) → bool
     """
 
-    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 64) -> None:
+    def __init__(self, port: str, baud: int, write_queue_maxsize: int = 64,
+                 tee: TeeServer | None = None) -> None:
         self.port = port
         self.baud = baud
         self._secs_per_byte = _BITS_PER_BYTE / baud
+        # Optional mirror of every byte written to the radio, out over TCP —
+        # lets a ground station reach us over the network (e.g. ZeroTier)
+        # when RF is unavailable but we have internet. See tee_server.py.
+        self._tee = tee
 
         self._serial: serial.Serial | None = None
 
@@ -304,6 +310,8 @@ class SerialTransport:
 
             try:
                 self._serial.write(item)
+                if self._tee is not None:
+                    self._tee.broadcast(item)
                 next_send = time.monotonic() + len(item) * self._secs_per_byte
             except serial.SerialException as e:
                 logger.error("SerialTransport: write error — %s", e)
