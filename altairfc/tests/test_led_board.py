@@ -23,14 +23,12 @@ def _make_board() -> tuple[LedBoard, _FakeDac]:
     return board, dac
 
 
-def test_construction_leaves_beacon_relay_off_not_on():
-    """Regression test: LedBoard.__init__() used to zero-initialize every channel including
-    RELAY_CHANNEL, which — since the relay is wired NC — actually left the beacon ON (lit) from
-    the moment the board was constructed, undetected until a real _set_beacon() state change
-    happened to occur. Confirmed on hardware 2026-08-03."""
+def test_construction_leaves_beacon_relay_off():
+    """RELAY_CHANNEL is wired NO — confirmed on hardware 2026-08-03 — so 0 (every channel's
+    default/off code) correctly leaves the beacon off from construction."""
     board, dac = _make_board()
-    assert board.code(RELAY_CHANNEL) == MAX_CODE
-    assert dac.writes[0][RELAY_CHANNEL] == MAX_CODE
+    assert board.code(RELAY_CHANNEL) == 0
+    assert dac.writes[0][RELAY_CHANNEL] == 0
 
 
 def test_write_channel_updates_code():
@@ -67,12 +65,9 @@ def test_sphere_and_relay_can_be_energized_simultaneously():
 
 
 def test_close_zeroes_all_channels_and_closes_dac():
-    """RELAY_CHANNEL must end at MAX_CODE, not 0: it's wired NC, so code 0 (like every other
-    channel's off state) would actually energize the beacon on shutdown -- the opposite of a
-    safe teardown. Regression test for that exact bug."""
     board, dac = _make_board()
     board.write_channel(SPHERE_CHANNEL, 500)
-    board.write_channel(RELAY_CHANNEL, 0)  # simulate the beacon having been lit before close()
+    board.write_channel(RELAY_CHANNEL, MAX_CODE)  # simulate the beacon having been lit before close()
     board.close()
-    assert dac.writes[-1] == [0, 0, 0, MAX_CODE]
+    assert dac.writes[-1] == [0, 0, 0, 0]
     assert dac.closed

@@ -17,14 +17,13 @@ The board now drives two physically distinct LEDs from the same MCP4728 (0x60):
                                                  BEACON_CHANNEL's LED supply, added
                                                  as a hard fix for RF-coupled gate
                                                  disturbance (see tests/test_LED_system.py).
-                                                 Wired NC (normally-closed), confirmed on
-                                                 hardware: code 0 (coil de-energized) closes
-                                                 the contact and powers the beacon -> ON;
-                                                 MAX_CODE (energized) opens it -> OFF. This
-                                                 is inverted from a typical NO assumption --
-                                                 see RELAY_CODE_BEACON_ON/_OFF below. Driven
-                                                 by BeaconChannel, which is the only thing
-                                                 that should write this channel.
+                                                 Wired NO (normally-open), confirmed on
+                                                 hardware: code 0 (coil de-energized) leaves
+                                                 the contact open -> beacon OFF; MAX_CODE
+                                                 (energized) closes it -> beacon ON. See
+                                                 RELAY_CODE_BEACON_ON/_OFF below. Driven by
+                                                 BeaconChannel, which is the only thing that
+                                                 should write this channel.
 
 Each of channel 0 and channel 1 has its own ADS1115 current-sense input (AIN0
 and AIN1 respectively -- see drivers/ads1115.py), but all four channels are
@@ -58,11 +57,11 @@ SPHERE_CHANNEL = 0  # MCP4728 channel A -- sphere source drive current
 BEACON_CHANNEL = 1  # MCP4728 channel B -- beacon brightness setpoint (no light without RELAY_CHANNEL)
 RELAY_CHANNEL  = 3  # MCP4728 channel D -- beacon on/off switch; this is what actually energizes it
 
-# RELAY_CHANNEL is wired NC (normally-closed) -- confirmed on hardware 2026-08-03: energizing
-# the relay coil (MAX_CODE) OPENS the contact and cuts the beacon's power; de-energizing it
-# (code 0) closes the contact and powers it. Inverted from a typical NO relay.
-RELAY_CODE_BEACON_ON  = 0          # coil de-energized -> NC contact closed -> beacon lit
-RELAY_CODE_BEACON_OFF = MAX_CODE   # coil energized -> contact opens -> beacon dark
+# RELAY_CHANNEL is wired NO (normally-open) -- confirmed on hardware 2026-08-03: energizing
+# the relay coil (MAX_CODE) closes the contact and powers the beacon; de-energizing it
+# (code 0) leaves it open.
+RELAY_CODE_BEACON_ON  = MAX_CODE   # coil energized -> NO contact closed -> beacon lit
+RELAY_CODE_BEACON_OFF = 0          # coil de-energized -> contact open -> beacon dark
 
 
 class LedBoard:
@@ -79,13 +78,8 @@ class LedBoard:
         use_ldac: bool = True,
         i2c_dev: str = "/dev/i2c-1",
     ) -> None:
-        self._codes = [0] * NUM_CHANNELS
-        # RELAY_CHANNEL's off code is MAX_CODE, not 0 -- see RELAY_CODE_BEACON_OFF above.
-        # Leaving it at the same 0 every other channel starts at would energize the NC-wired
-        # beacon relay's rest state (de-energized = lit) the moment this board is constructed,
-        # and nothing would correct it until a real _set_beacon() state transition happened —
-        # confirmed on hardware 2026-08-03 as the cause of the beacon appearing permanently on.
-        self._codes[RELAY_CHANNEL] = RELAY_CODE_BEACON_OFF
+        self._codes = [0] * NUM_CHANNELS  # 0 is every channel's off state, including
+                                           # RELAY_CHANNEL (NO-wired) -- see RELAY_CODE_BEACON_OFF
         self._dac = dac if dac is not None else MCP4728Driver(i2c_dev)
         self._ads = ads1115 if ads1115 is not None else Ads1115(bus)
 
@@ -128,13 +122,7 @@ class LedBoard:
         self._flush()
 
     def all_off(self, channel: int) -> None:
-        """Zero one channel's DAC code.
-
-        NOT the same as "turn this channel's light off" for RELAY_CHANNEL, which is wired NC —
-        code 0 energizes the beacon, not de-energizes it. Callers wanting the beacon dark must
-        use BeaconChannel.off()/all_off() (or write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_OFF)
-        directly), never this method, for that channel.
-        """
+        """Zero one channel's DAC code -- 0 is the off state for every channel on this board."""
         self._codes[channel] = 0
         self._flush()
 
@@ -151,14 +139,10 @@ class LedBoard:
             raise OSError("MCP4728: Multi-Write failed")
 
     def close(self) -> None:
-        """Drive all channels to their safe/off state, then release the DAC and any pigpio
-        handle we own. RELAY_CHANNEL's off state is MAX_CODE, not 0 -- see
-        RELAY_CODE_BEACON_OFF above; zeroing it like every other channel would actually
-        energize the beacon (NC wiring), the opposite of what a shutdown should do.
-        """
+        """Drive all channels to 0 (every channel's off state), then release the DAC and any
+        pigpio handle we own."""
         for ch in range(NUM_CHANNELS):
             self._codes[ch] = 0
-        self._codes[RELAY_CHANNEL] = RELAY_CODE_BEACON_OFF
         try:
             self._flush()
         except Exception:
