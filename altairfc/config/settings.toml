@@ -11,7 +11,7 @@ baud = 57600
 # socket, so a ground station can read the same telemetry over the network
 # (e.g. a ZeroTier tunnel) when RF is unavailable but this Pi has internet.
 # Off by default — enable only if you've set up a tunnel to reach this port.
-enabled = false
+enabled = true
 host = "0.0.0.0"
 port = 5760
 
