@@ -8,7 +8,10 @@ dim to see. Two MCP4728 channels are involved (0x60), with different jobs:
     RELAY_CHANNEL  = 3  the actual ON/OFF switch -- a 2N2222A-gated relay that
                          connects BEACON_CHANNEL's LED supply, added as a hard
                          fix for RF-coupled gate disturbance (see
-                         tests/test_LED_system.py). Code 0 = off, MAX_CODE = on.
+                         tests/test_LED_system.py). Wired NC (normally-closed),
+                         confirmed on hardware 2026-08-03: code 0 (de-energized)
+                         closes the contact -> beacon ON; MAX_CODE (energized)
+                         opens it -> beacon OFF. See led_board.RELAY_CODE_BEACON_ON/_OFF.
 
 Flashing the beacon is therefore: set_brightness() once, then on()/off() to
 toggle the relay for each flash -- not repeated set_brightness() calls.
@@ -31,17 +34,22 @@ Usage:
     board = LedBoard(bus=bus)
     beacon = BeaconChannel(board=board)
     beacon.set_brightness(1500)   # clamped to BEACON_MAX_SAFE_CODE regardless
-    beacon.on()                   # energizes the relay
-    beacon.off()
-    beacon.all_off()              # zeros brightness AND relay
+    beacon.on()                   # de-energizes the relay (NC wiring) -- beacon lit
+    beacon.off()                  # energizes the relay -- beacon dark
+    beacon.all_off()              # zeros brightness, energizes the relay -- beacon dark
 """
 
 from __future__ import annotations
 
 import logging
 
-from drivers.led_board import BEACON_CHANNEL, RELAY_CHANNEL, LedBoard
-from drivers.mcp4728_driver import MAX_CODE
+from drivers.led_board import (
+    BEACON_CHANNEL,
+    RELAY_CHANNEL,
+    RELAY_CODE_BEACON_OFF,
+    RELAY_CODE_BEACON_ON,
+    LedBoard,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +75,9 @@ class BeaconChannel:
         return self._board.code(BEACON_CHANNEL)
 
     @property
-    def relay_on(self) -> bool:
-        return self._board.code(RELAY_CHANNEL) > 0
+    def lit(self) -> bool:
+        """Whether the beacon LED is actually emitting light right now."""
+        return self._board.code(RELAY_CHANNEL) == RELAY_CODE_BEACON_ON
 
     def set_brightness(self, code: int) -> None:
         """Hold the beacon's brightness setpoint (channel 1), clamped to BEACON_MAX_SAFE_CODE.
@@ -78,17 +87,18 @@ class BeaconChannel:
         self._board.write_channel(BEACON_CHANNEL, max(0, min(BEACON_MAX_SAFE_CODE, int(code))))
 
     def on(self) -> None:
-        """Energize the relay (channel 3) — this is what actually turns the beacon LED on."""
-        self._board.write_channel(RELAY_CHANNEL, MAX_CODE)
+        """Turn the beacon LED on — de-energizes the relay (channel 3); see RELAY_CODE_BEACON_ON."""
+        self._board.write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_ON)
 
     def off(self) -> None:
-        """De-energize the relay (channel 3). Leaves the brightness setpoint (channel 1) untouched."""
-        self._board.all_off(RELAY_CHANNEL)
+        """Turn the beacon LED off — energizes the relay (channel 3); see RELAY_CODE_BEACON_OFF.
+        Leaves the brightness setpoint (channel 1) untouched."""
+        self._board.write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_OFF)
 
     def all_off(self) -> None:
-        """Zero both the brightness setpoint (channel 1) and the relay (channel 3)."""
+        """Zero the brightness setpoint (channel 1) and turn the beacon LED off (channel 3)."""
         self._board.all_off(BEACON_CHANNEL)
-        self._board.all_off(RELAY_CHANNEL)
+        self._board.write_channel(RELAY_CHANNEL, RELAY_CODE_BEACON_OFF)
 
     def read_current_a(self) -> float:
         return self._board.ads.read_current_a(
