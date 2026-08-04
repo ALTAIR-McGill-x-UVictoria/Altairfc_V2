@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
-import tomllib
+try:
+    import tomllib   # stdlib on Python 3.11+
+except ModuleNotFoundError:
+    import tomli as tomllib   # Python 3.10 (e.g. the flight Pi's system interpreter)
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
