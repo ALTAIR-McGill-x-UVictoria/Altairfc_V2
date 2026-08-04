@@ -22,7 +22,26 @@ case "$INTERFACE" in
 esac
 
 case "$ACTION" in
-    up|down|dhcp4-change|dhcp6-change|vpn-up|vpn-down)
-        systemctl restart zerotier-one.service
-        ;;
+    up|down|dhcp4-change|dhcp6-change|vpn-up|vpn-down) ;;
+    *) exit 0 ;;
 esac
+
+# A single network transition fires several of the events above in quick
+# succession (down, up, dhcp4-change, ...). Restarting zerotier-one on each
+# one overlaps the previous restart's shutdown and reliably crashes it
+# (SIGABRT / "ioctl() failed setting up Linux tap device"). Debounce with a
+# lock + cooldown so only one restart happens per network change.
+LOCKFILE=/run/zerotier-reconnect.lock
+MARKER=/run/zerotier-reconnect.last
+COOLDOWN=10
+
+exec 9>"$LOCKFILE"
+flock -n 9 || exit 0
+
+now=$(date +%s)
+if [ -f "$MARKER" ] && [ $(( now - $(cat "$MARKER") )) -lt "$COOLDOWN" ]; then
+    exit 0
+fi
+echo "$now" > "$MARKER"
+
+systemctl restart zerotier-one.service
