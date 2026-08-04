@@ -58,7 +58,7 @@ enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
 [tasks.lighting]
-enabled  = false  # PLACEHOLDER — enable once flight-ready
+enabled  = true  # PLACEHOLDER — enable once flight-ready
 period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop below: at 5 Hz the loop can
                    # only apply max_code_step of correction 5x/sec, ~4-6x less closed-loop bandwidth than
                    # tests/test_LED_system.py's free-running loop (which is what was actually validated
