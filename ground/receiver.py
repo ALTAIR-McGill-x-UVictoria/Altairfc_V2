@@ -54,8 +54,14 @@ _LEVEL_STYLES = {
 
 
 class _ColorFormatter(logging.Formatter):
-    _FMT  = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+    _FMT  = "%(asctime)sZ  %(levelname)-8s  %(name)s  %(message)s"
     _DATE = "%Y-%m-%dT%H:%M:%S"
+
+    # Force UTC (see altairfc/core/log_format.py for why): the ground station
+    # runs on whatever timezone the operator's laptop happens to be set to,
+    # and receiver log timestamps must line up with the flight computer's
+    # UTC-stamped flight.log and telemetry when correlating after a flight.
+    converter = time.gmtime
 
     def __init__(self, use_color: bool) -> None:
         super().__init__(fmt=self._FMT, datefmt=self._DATE)
@@ -70,7 +76,7 @@ class _ColorFormatter(logging.Formatter):
         formatted        = super().format(record)
         plain_msg        = record.getMessage()
         formatted        = formatted.replace(plain_msg, f"{msg_color}{plain_msg}{_RESET}", 1)
-        formatted        = f"{_DIM}{_GREY}{formatted[:19]}{_RESET}{formatted[19:]}"
+        formatted        = f"{_DIM}{_GREY}{formatted[:20]}{_RESET}{formatted[20:]}"
         return formatted
 
 

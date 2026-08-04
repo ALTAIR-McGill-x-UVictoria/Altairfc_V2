@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 
 
@@ -43,8 +44,15 @@ class ColorFormatter(logging.Formatter):
     (e.g. piped to a file or journald), keeping logs clean in that case.
     """
 
-    _BASE_FMT  = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+    _BASE_FMT  = "%(asctime)sZ  %(levelname)-8s  %(name)s  %(message)s"
     _DATE_FMT  = "%Y-%m-%dT%H:%M:%S"
+
+    # logging.Formatter.converter defaults to time.localtime, which would make
+    # log timestamps depend on the Pi's system timezone (not guaranteed to be
+    # UTC) and disagree with the UTC-based telemetry timestamps and lighting
+    # schedule (see tasks/lighting_task.py). Force UTC so flight.log always
+    # matches.
+    converter = time.gmtime
 
     def __init__(self, use_color: bool = True) -> None:
         super().__init__(fmt=self._BASE_FMT, datefmt=self._DATE_FMT)
@@ -73,8 +81,8 @@ class ColorFormatter(logging.Formatter):
         colored_msg = f"{msg_color}{plain_msg}{_RESET}"
         formatted = formatted.replace(plain_msg, colored_msg, 1)
 
-        # Color the timestamp prefix (first 19 chars: YYYY-MM-DDTHH:MM:SS)
-        formatted = f"{_DIM}{_GREY}{formatted[:19]}{_RESET}{formatted[19:]}"
+        # Color the timestamp prefix (first 20 chars: YYYY-MM-DDTHH:MM:SSZ)
+        formatted = f"{_DIM}{_GREY}{formatted[:20]}{_RESET}{formatted[20:]}"
 
         return formatted
 

@@ -93,8 +93,11 @@ def main() -> None:
     config = SystemConfig.from_toml(config_path)
 
     # Create the per-session log directory now so both the file logger and
-    # DataLoggerTask share the same timestamped folder.
-    session_name = time.strftime("%Y-%m-%d_%H-%M-%S")
+    # DataLoggerTask share the same timestamped folder. Explicit UTC (not
+    # time.strftime's default localtime) so the folder name lines up with
+    # the UTC timestamps recorded inside flight.log and the DataLogger CSVs
+    # regardless of the Pi's system timezone setting.
+    session_name = time.strftime("%Y-%m-%d_%H-%M-%SZ", time.gmtime())
     datalogger_enabled = config.tasks.get("datalogger", None)
     if datalogger_enabled and datalogger_enabled.enabled:
         session_dir = config.log_root / session_name

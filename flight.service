@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=notify
 WorkingDirectory=/home/pi/Altairfc_V2/altairfc
+Environment=TZ=UTC
 ExecStart=/usr/bin/python3 main.py
 Restart=on-failure
 RestartSec=5

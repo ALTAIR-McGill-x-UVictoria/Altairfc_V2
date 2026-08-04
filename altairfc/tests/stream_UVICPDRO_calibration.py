@@ -286,7 +286,7 @@ def parse_channel(value: str) -> str:
 
 
 def default_output_path() -> Path:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     return Path(f"uvicpdro_calibration_{stamp}.csv")
 
 
