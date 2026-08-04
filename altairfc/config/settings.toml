@@ -73,8 +73,8 @@ sphere_target_current_a = 0.2657   # A — PI current-hold target (drivers/spher
                                     # event.ascent_active) and never turns off internally afterward —
                                     # FlightStageTask stops the "lighting" task entirely at apogee
                                     # (burst/termination), and teardown() zeroes both LED channels.
-sphere_kp = 3000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
-sphere_ki = 800.0    # confirmed stable against the RF disturbance; drivers/sphere_led.py's own defaults
+sphere_kp = 5000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
+sphere_ki = 1000.0    # confirmed stable against the RF disturbance; drivers/sphere_led.py's own defaults
                       # (2000/400) were untested placeholders, not soak-validated
 beacon_dac_code = 1500   # PLACEHOLDER — beacon brightness setpoint, MCP4728 channel 1 (0-3000, clamped by
                           # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the channel 3 relay
