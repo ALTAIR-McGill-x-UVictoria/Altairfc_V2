@@ -1,0 +1,28 @@
+#!/bin/bash
+# NetworkManager dispatcher hook: force ZeroTier to rebind its UDP sockets
+# immediately after a network/Wi-Fi change, instead of waiting on its own
+# multi-minute path-detection timers. Needed on both the ground station
+# and the flight computer Pi so SSH over ZeroTier comes back quickly after
+# any wifi change.
+#
+# Deploy (on both machines running NetworkManager):
+#   sudo install -m 755 -o root -g root 90-zerotier-reconnect \
+#       /etc/NetworkManager/dispatcher.d/90-zerotier-reconnect
+#   sudo ln -sf /etc/NetworkManager/dispatcher.d/90-zerotier-reconnect \
+#       /etc/NetworkManager/dispatcher.d/no-wait.d/90-zerotier-reconnect
+#
+# The no-wait.d symlink keeps this from blocking other dispatcher scripts
+# while zerotier-one restarts.
+INTERFACE="$1"
+ACTION="$2"
+
+# Ignore events on ZeroTier's own tun interfaces to avoid restart loops.
+case "$INTERFACE" in
+    zt*) exit 0 ;;
+esac
+
+case "$ACTION" in
+    up|down|dhcp4-change|dhcp6-change|vpn-up|vpn-down)
+        systemctl restart zerotier-one.service
+        ;;
+esac
