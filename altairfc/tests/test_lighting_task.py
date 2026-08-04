@@ -10,6 +10,7 @@ from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
     LightingTask,
+    flash_state,
     parse_windows,
     seconds_to_window,
     window_active,
@@ -63,6 +64,21 @@ def test_seconds_to_window_recurring_period():
     assert seconds_to_window(30.0, w) == pytest.approx(55.0)
     assert seconds_to_window(20.0, w) == pytest.approx(5.0)
     assert seconds_to_window(25.0, w) == 0.0
+
+
+def test_flash_state_50_percent_duty_cycle():
+    """At 2 Hz (period 0.5s), on for the first 0.25s of every 0.5s, off for the rest."""
+    assert flash_state(0.0, 2.0) is True
+    assert flash_state(0.24, 2.0) is True
+    assert flash_state(0.25, 2.0) is False
+    assert flash_state(0.49, 2.0) is False
+    assert flash_state(0.5, 2.0) is True   # next cycle
+
+
+def test_flash_state_different_rates():
+    assert flash_state(0.9, 1.0) is False   # 1 Hz: on [0, 0.5), off [0.5, 1.0)
+    assert flash_state(1.0, 1.0) is True    # wraps to the next 1s cycle
+    assert flash_state(0.05, 10.0) is False  # 10 Hz: on [0, 0.05), off [0.05, 0.1)
 
 
 def test_parse_windows_period_s():
@@ -168,7 +184,7 @@ def test_apply_turns_sphere_on_immediately():
     configured — no longer gated on observation_active/event.ascent_active."""
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
-    task._apply(True, None)  # no active beacon window
+    task._apply(True, None, 0.0)  # no active beacon window
 
     assert task._sphere_on is True
     assert task._beacon_on is False
@@ -181,10 +197,10 @@ def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
     """Per project decision: no internal apogee check — once on, only task teardown turns it off."""
     task, pair = _make_task(sphere_target_current_a=0.2657)
 
-    task._apply(True, None)
+    task._apply(True, None, 0.0)
     assert task._sphere_on is True
 
-    task._apply(False, None)
+    task._apply(False, None, 0.0)
     assert task._sphere_on is True
     assert pair.sphere_code != 0
 
@@ -192,25 +208,39 @@ def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
 def test_apply_beacon_strobes_during_window_even_while_sphere_is_on():
     """No interlock: the beacon flashes on its schedule regardless of the sphere's state. Safe
     by construction because beacon_windows are defined as the non-observation windows — see
-    LightingTask's class docstring."""
+    LightingTask's class docstring. beacon_flash_hz defaults to 2.0 (period 0.5s, on for the
+    first 0.25s of each cycle) — now_s=25.0 lands exactly on a cycle boundary, so it's on."""
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
-    task._apply(True, None)  # sphere latches on, no window yet
+    task._apply(True, None, 0.0)  # sphere latches on, no window yet
     assert task._sphere_on is True
     assert task._beacon_on is False
 
-    task._apply(True, w)  # beacon window now active — sphere stays on throughout
+    task._apply(True, w, 25.0)  # beacon window now active — sphere stays on throughout
     assert task._sphere_on is True
     assert task._beacon_on is True
     assert pair.sphere_code != 0
     assert pair.relay_code == 1
 
 
+def test_apply_beacon_toggles_off_between_flashes_within_an_active_window():
+    """The window being active is necessary but not sufficient for the beacon to be on — it
+    also has to be in the "on" half of the current flash cycle. now_s=25.3 is still inside the
+    5s window (25-30) but past the 0.25s on-phase of the 0.5s (2 Hz) flash cycle."""
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
+    w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
+
+    task._apply(True, w, 25.3)
+
+    assert task._beacon_on is False
+    assert pair.relay_code == 0
+
+
 def test_apply_leaves_beacon_off_outside_window():
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
-    task._apply(False, None)
+    task._apply(False, None, 0.0)
 
     assert task._beacon_on is False
     assert pair.relay_code == 0
@@ -222,7 +252,7 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
     task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
-    task._apply(True, w)
+    task._apply(True, w, 25.0)
 
     assert task._sphere_on is False
     assert task._beacon_on is True
@@ -231,7 +261,7 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
 
 def test_teardown_zeroes_sphere_and_beacon_including_relay():
     task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
-    task._apply(True, None)
+    task._apply(True, None, 0.0)
     assert pair.sphere_code != 0
 
     task._board = None  # avoid LedBoard.close() touching the fake board object

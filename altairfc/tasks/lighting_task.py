@@ -63,6 +63,16 @@ def seconds_to_window(now_s: float, w: ImagingWindow) -> float:
     return (w.start_s - now_s) % w.period_s
 
 
+def flash_state(now_s: float, flash_hz: float) -> bool:
+    """True during the "on" half of a 50% duty-cycle square wave at flash_hz.
+
+    Phase-locked to now_s (seconds since UTC midnight), not wall-clock-since-task-start,
+    so the on/off phase doesn't depend on exactly when the task happened to start.
+    """
+    period_s = 1.0 / flash_hz
+    return (now_s % period_s) < (period_s / 2.0)
+
+
 class LightingTask(BaseTask):
     """
     Two independent behaviors sharing one LED board, run fully independently
@@ -79,10 +89,12 @@ class LightingTask(BaseTask):
         stops "pointing"), which ends this task's run loop and invokes
         teardown(), which zeroes both channels.
 
-      * Spotter beacon: strobes on a fixed GPS-UTC schedule (beacon_windows,
-        e.g. 5s flashes at :25 and :55 of every minute), regardless of
-        whether the sphere is on. Brightness (MCP4728 channel 1) is set
-        once; each flash toggles the relay (channel 3) on/off — see
+      * Spotter beacon: enabled on a fixed GPS-UTC schedule (beacon_windows,
+        e.g. active for 5s at :25 and :55 of every minute), regardless of
+        whether the sphere is on. Within an active window it strobes on/off
+        as a 50% duty-cycle square wave at beacon_flash_hz (see flash_state())
+        rather than staying continuously lit. Brightness (MCP4728 channel 1)
+        is set once; each on/off toggle drives the relay (channel 3) — see
         drivers/beacon_led.py. beacon_windows are defined as the times
         ground-based imaging is NOT happening — i.e. the beacon flashing
         during those windows is exactly why they must stay clear of actual
@@ -130,14 +142,18 @@ class LightingTask(BaseTask):
         sphere_kp: float | None = None,
         sphere_ki: float | None = None,
         beacon_dac_code: int = 1500,
+        beacon_flash_hz: float = 2.0,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
+        if beacon_flash_hz <= 0:
+            raise ValueError("beacon_flash_hz must be greater than zero")
         self._i2c_dev = i2c_dev
         self._beacon_windows = parse_windows(beacon_windows)
         self._sphere_target_current_a = sphere_target_current_a
         self._sphere_kp = sphere_kp
         self._sphere_ki = sphere_ki
         self._beacon_dac_code = max(0, min(BEACON_MAX_SAFE_CODE, int(beacon_dac_code)))
+        self._beacon_flash_hz = beacon_flash_hz
 
         if not self._beacon_windows:
             logger.warning("LightingTask: no beacon windows configured — beacon will never flash")
@@ -212,14 +228,16 @@ class LightingTask(BaseTask):
             next_in_s = float("inf")
 
         if self._board is not None:
-            self._apply(observation_active, active_beacon_window)
+            self._apply(observation_active, active_beacon_window, now_s)
 
         self.datastore.write("lighting.sphere_on", int(self._sphere_on))
         self.datastore.write("lighting.beacon_on", int(self._beacon_on))
         self.datastore.write("lighting.observation_active", int(observation_active))
         self.datastore.write("lighting.next_beacon_flash_in_s", next_in_s)
 
-    def _apply(self, observation_active: bool, active_beacon_window: ImagingWindow | None) -> None:
+    def _apply(
+        self, observation_active: bool, active_beacon_window: ImagingWindow | None, now_s: float
+    ) -> None:
         # One-shot latch: engages the moment this task starts (no longer
         # gated on event.ascent_active) and there is no internal path back
         # off. It only ever stops via this task being stopped (see the
@@ -239,10 +257,14 @@ class LightingTask(BaseTask):
             state = self._sphere.update()
             self._log_loop_stats(state)
 
-        # Independent of the sphere: strobe on beacon_windows, which are
-        # defined as the times ground imaging is NOT happening, so the sphere
-        # being on at the same time never contaminates a real exposure.
-        self._set_beacon(active_beacon_window is not None)
+        # Independent of the sphere: strobe on/off at beacon_flash_hz while inside a
+        # beacon_windows entry (which are defined as the times ground imaging is NOT
+        # happening, so the sphere being on at the same time never contaminates a real
+        # exposure), off otherwise.
+        beacon_should_flash_on = (
+            active_beacon_window is not None and flash_state(now_s, self._beacon_flash_hz)
+        )
+        self._set_beacon(beacon_should_flash_on)
 
     def _log_loop_stats(self, state: LedState) -> None:
         """Once/sec, log the achieved update() rate plus the current spread seen within that
