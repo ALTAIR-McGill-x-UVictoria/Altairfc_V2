@@ -61,6 +61,7 @@ from drivers.led_board import (
     RELAY_CODE_BEACON_ON,
     LedBoard,
 )
+from drivers.mcp4728_driver import MAX_CODE
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,14 @@ logger = logging.getLogger(__name__)
 # regardless of what a caller requests. This is a different physical LED than
 # the sphere source (MAX_SAFE_CODE=1400 there) — measured/rated limit for this LED.
 BEACON_MAX_SAFE_CODE = 3000
+
+# Purge-mode ceiling: the flight_purge_sphere configuration replaces the sphere's
+# current-hold observation with holding the beacon at the DAC's absolute max
+# (MCP4728 is 12-bit) instead, so the beacon's own current draw can be
+# characterized at full drive. This deliberately exceeds BEACON_MAX_SAFE_CODE's
+# measured/rated limit — only set_purge_brightness() below can reach it;
+# set_brightness() keeps clamping to BEACON_MAX_SAFE_CODE for normal flashing use.
+BEACON_PURGE_MAX_CODE = MAX_CODE
 
 # AIN1's sense resistor for the beacon's drive current — NOT the same value as
 # the sphere's (drivers.ads1115.SENSE_RESISTOR_OHM = 2.2 ohm, channel 0 only).
@@ -117,6 +126,16 @@ class BeaconChannel:
         on() is called (channel 1 stays at 0 while dark — see module docstring).
         """
         self._target_brightness = max(0, min(BEACON_MAX_SAFE_CODE, int(code)))
+        if self.lit:
+            self._board.write_channel(BEACON_CHANNEL, self._target_brightness)
+
+    def set_purge_brightness(self, code: int) -> None:
+        """Like set_brightness(), but clamped to BEACON_PURGE_MAX_CODE (4095) instead of
+        BEACON_MAX_SAFE_CODE (3000). Only for the flight_purge_sphere configuration, which
+        holds the beacon at full DAC drive in place of the sphere's current-hold loop — see
+        BEACON_PURGE_MAX_CODE above for why this is allowed to exceed the LED's normal rating.
+        """
+        self._target_brightness = max(0, min(BEACON_PURGE_MAX_CODE, int(code)))
         if self.lit:
             self._board.write_channel(BEACON_CHANNEL, self._target_brightness)
 

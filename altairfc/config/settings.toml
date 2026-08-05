@@ -77,6 +77,13 @@ period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop
                    # sphere loop ends up I2C-bound same as the test script, not artificially capped at 5 Hz.
                    # Still tight enough for the 5s beacon flash duration below.
 i2c_dev  = "/dev/i2c-1"
+purge_mode = true   # flight_purge_sphere branch: skip the sphere's current-hold loop entirely and
+                     # instead hold the beacon solid (no flashing) at BEACON_PURGE_MAX_CODE (4095 —
+                     # the DAC's absolute max, above the beacon's normal BEACON_MAX_SAFE_CODE=3000
+                     # rating), logging its drive current every tick (lighting.beacon_current_a).
+                     # sphere_target_current_a / beacon_dac_code / beacon_flash_hz / beacon_windows
+                     # below are all ignored while this is true — see tasks/lighting_task.py's
+                     # _apply_purge().
 sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
                                     # Sphere turns on as soon as the lighting task starts (not gated on
                                     # event.ascent_active) and never turns off internally afterward —

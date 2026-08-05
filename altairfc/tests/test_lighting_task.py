@@ -6,6 +6,7 @@ import types
 import pytest
 
 from core.datastore import DataStore
+from drivers.beacon_led import BEACON_PURGE_MAX_CODE
 from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
@@ -155,8 +156,12 @@ class _FakeBeacon:
     def __init__(self, pair: _FakeChannelState) -> None:
         self._pair = pair
         self.brightness_code = 0
+        self.current_a = 0.0
 
     def set_brightness(self, code: int) -> None:
+        self.brightness_code = code
+
+    def set_purge_brightness(self, code: int) -> None:
         self.brightness_code = code
 
     def on(self) -> None:
@@ -168,6 +173,9 @@ class _FakeBeacon:
     def all_off(self) -> None:
         self.brightness_code = 0
         self._pair.relay_code = 0
+
+    def read_current_a(self) -> float:
+        return self.current_a
 
 
 def _make_task(**kwargs) -> tuple[LightingTask, _FakeChannelState]:
@@ -257,6 +265,51 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
     assert task._sphere_on is False
     assert task._beacon_on is True
     assert pair.sphere_code == 0
+
+
+def test_purge_mode_latches_beacon_solid_at_max_code_never_sphere():
+    """flight_purge_sphere: purge_mode holds the beacon solid at BEACON_PURGE_MAX_CODE (4095)
+    in place of the sphere current-hold loop, latched on the first _apply() call, never
+    flashing (relay stays energized, no off/on toggling)."""
+    task, pair = _make_task(sphere_target_current_a=0.4, purge_mode=True)
+    task._beacon.set_purge_brightness(BEACON_PURGE_MAX_CODE)
+    task._beacon.current_a = 0.6
+
+    task._apply(True, None, 0.0)
+
+    assert task._sphere_on is False
+    assert pair.sphere_code == 0
+    assert task._beacon_on is True
+    assert pair.relay_code == 1
+    assert task._beacon.brightness_code == BEACON_PURGE_MAX_CODE
+    assert task._beacon_current_a == pytest.approx(0.6)
+
+
+def test_purge_mode_beacon_stays_on_across_multiple_ticks():
+    """No internal off-path: repeated _apply() calls must not toggle the relay back off --
+    only task teardown (external, at apogee) turns purge-mode beacon off."""
+    task, pair = _make_task(sphere_target_current_a=0.4, purge_mode=True)
+
+    task._apply(True, None, 0.0)
+    task._apply(True, None, 0.1)
+    task._apply(False, None, 0.2)  # observation_active going False must not turn it off either
+
+    assert task._beacon_on is True
+    assert pair.relay_code == 1
+
+
+def test_purge_mode_ignores_beacon_windows_and_flash_schedule():
+    """purge_mode holds the beacon solid regardless of beacon_windows/flash phase -- it is not
+    gated on an active window or flash_state() the way normal beacon strobing is."""
+    task, pair = _make_task(sphere_target_current_a=0.4, purge_mode=True)
+
+    # now_s=25.3 would be "off" for a 2 Hz flash inside a window in non-purge mode
+    # (see test_apply_beacon_toggles_off_between_flashes_within_an_active_window) -- and here
+    # there isn't even an active window (None), which would also mean "off" in non-purge mode.
+    task._apply(True, None, 25.3)
+
+    assert task._beacon_on is True
+    assert pair.relay_code == 1
 
 
 def test_teardown_zeroes_sphere_and_beacon_including_relay():

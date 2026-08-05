@@ -8,7 +8,7 @@ from typing import Any
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
-from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BeaconChannel
+from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BEACON_PURGE_MAX_CODE, BeaconChannel
 from drivers.led_board import LedBoard
 from drivers.sphere_led import LedState, SphereLedSource
 
@@ -89,23 +89,36 @@ class LightingTask(BaseTask):
         stops "pointing"), which ends this task's run loop and invokes
         teardown(), which zeroes both channels.
 
-      * Spotter beacon: enabled on a fixed GPS-UTC schedule (beacon_windows,
-        e.g. active for 5s at :25 and :55 of every minute), regardless of
-        whether the sphere is on. Within an active window it strobes on/off
-        as a 50% duty-cycle square wave at beacon_flash_hz (see flash_state())
-        rather than staying continuously lit. Brightness (MCP4728 channel 1)
-        is set once; each on/off toggle drives the relay (channel 3) — see
-        drivers/beacon_led.py. beacon_windows are defined as the times
-        ground-based imaging is NOT happening — i.e. the beacon flashing
-        during those windows is exactly why they must stay clear of actual
-        calibration exposures. Outside beacon_windows the beacon is off, so
-        it never contaminates an exposure.
+        purge_mode (flight_purge_sphere configuration) replaces this behavior
+        entirely: the sphere's current-hold loop is never engaged, and instead
+        the beacon is latched solid (no flashing) at BEACON_PURGE_MAX_CODE
+        (4095, the DAC's absolute 12-bit max — above the beacon's normal
+        BEACON_MAX_SAFE_CODE rating of 3000) as soon as this task starts, with
+        its drive current sampled and logged every tick. Same one-shot-latch,
+        no-internal-off-path, teardown-only-off shape as the sphere path above
+        — see _apply() and drivers/beacon_led.py's set_purge_brightness().
+        beacon_windows/beacon_flash_hz are ignored in this mode since the
+        beacon is never off and never strobing.
+
+      * Spotter beacon (normal, non-purge_mode operation): enabled on a fixed
+        GPS-UTC schedule (beacon_windows, e.g. active for 5s at :25 and :55 of
+        every minute), regardless of whether the sphere is on. Within an
+        active window it strobes on/off as a 50% duty-cycle square wave at
+        beacon_flash_hz (see flash_state()) rather than staying continuously
+        lit. Brightness (MCP4728 channel 1) is set once; each on/off toggle
+        drives the relay (channel 3) — see drivers/beacon_led.py.
+        beacon_windows are defined as the times ground-based imaging is NOT
+        happening — i.e. the beacon flashing during those windows is exactly
+        why they must stay clear of actual calibration exposures. Outside
+        beacon_windows the beacon is off, so it never contaminates an
+        exposure.
 
     The sphere and the beacon's relay CAN be energized together — there's no
     electrical constraint against it (drivers.led_board.LedBoard does not
     interlock them); keeping them apart is purely about not flashing the
     beacon during a real imaging exposure, which is what beacon_windows
-    already guarantees by construction.
+    already guarantees by construction. (Moot in purge_mode: the sphere is
+    never engaged there.)
 
     Imaging is done by ground-based cameras/telescopes, not an onboard camera:
     since the downlink is unidirectional, ground observers independently know
@@ -127,8 +140,11 @@ class LightingTask(BaseTask):
     DataStore keys written:
         lighting.sphere_on              (int 0/1)
         lighting.beacon_on              (int 0/1)
+        lighting.beacon_current_a       (float, beacon drive current — sampled and logged every
+                                         tick whenever the beacon is lit, purge_mode or not)
         lighting.observation_active     (int 0/1, mirrors event.ascent_active)
-        lighting.next_beacon_flash_in_s (float, seconds until next beacon window; 0 if active)
+        lighting.next_beacon_flash_in_s (float, seconds until next beacon window; 0 if active;
+                                         always 0 in purge_mode since the beacon is never off)
     """
 
     def __init__(
@@ -143,6 +159,7 @@ class LightingTask(BaseTask):
         sphere_ki: float | None = None,
         beacon_dac_code: int = 1500,
         beacon_flash_hz: float = 2.0,
+        purge_mode: bool = False,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         if beacon_flash_hz <= 0:
@@ -154,11 +171,17 @@ class LightingTask(BaseTask):
         self._sphere_ki = sphere_ki
         self._beacon_dac_code = max(0, min(BEACON_MAX_SAFE_CODE, int(beacon_dac_code)))
         self._beacon_flash_hz = beacon_flash_hz
+        self._purge_mode = purge_mode
 
-        if not self._beacon_windows:
+        if not self._beacon_windows and not purge_mode:
             logger.warning("LightingTask: no beacon windows configured — beacon will never flash")
-        if self._sphere_target_current_a is None:
+        if self._sphere_target_current_a is None and not purge_mode:
             logger.warning("LightingTask: sphere_target_current_a not configured — sphere source will never fire")
+        if purge_mode:
+            logger.info(
+                "LightingTask: purge_mode enabled — sphere current-hold loop disabled; beacon "
+                "will be held solid at code %d (BEACON_PURGE_MAX_CODE) instead", BEACON_PURGE_MAX_CODE
+            )
 
         self._bus = None
         self._board: LedBoard | None = None
@@ -167,6 +190,7 @@ class LightingTask(BaseTask):
 
         self._sphere_on = False
         self._beacon_on = False
+        self._beacon_current_a = 0.0
 
         # Sphere current-loop instrumentation: logs the achieved sphere.update()
         # rate plus the current spread seen each second, so both "is the loop
@@ -189,6 +213,7 @@ class LightingTask(BaseTask):
         # like a healthy loop running at speed with target=nan and code=0).
         self._sphere_on = False
         self._beacon_on = False
+        self._beacon_current_a = 0.0
         self._loop_iters = 0
         self._loop_rate_log_t = 0.0
         self._loop_current_min = float("inf")
@@ -201,7 +226,10 @@ class LightingTask(BaseTask):
             self._board = LedBoard(bus=self._bus, i2c_dev=self._i2c_dev)
             self._sphere = SphereLedSource(board=self._board)
             self._beacon = BeaconChannel(board=self._board)
-            self._beacon.set_brightness(self._beacon_dac_code)
+            if self._purge_mode:
+                self._beacon.set_purge_brightness(BEACON_PURGE_MAX_CODE)
+            else:
+                self._beacon.set_brightness(self._beacon_dac_code)
         except Exception:
             logger.exception(
                 "LightingTask: failed to open LED board on %s — lighting control disabled",
@@ -232,12 +260,17 @@ class LightingTask(BaseTask):
 
         self.datastore.write("lighting.sphere_on", int(self._sphere_on))
         self.datastore.write("lighting.beacon_on", int(self._beacon_on))
+        self.datastore.write("lighting.beacon_current_a", self._beacon_current_a)
         self.datastore.write("lighting.observation_active", int(observation_active))
         self.datastore.write("lighting.next_beacon_flash_in_s", next_in_s)
 
     def _apply(
         self, observation_active: bool, active_beacon_window: ImagingWindow | None, now_s: float
     ) -> None:
+        if self._purge_mode:
+            self._apply_purge()
+            return
+
         # One-shot latch: engages the moment this task starts (no longer
         # gated on event.ascent_active) and there is no internal path back
         # off. It only ever stops via this task being stopped (see the
@@ -265,6 +298,55 @@ class LightingTask(BaseTask):
             active_beacon_window is not None and flash_state(now_s, self._beacon_flash_hz)
         )
         self._set_beacon(beacon_should_flash_on)
+        if self._beacon_on:
+            self._beacon_current_a = self._beacon.read_current_a()
+
+    def _apply_purge(self) -> None:
+        """flight_purge_sphere: instead of the sphere's current-hold loop, hold the beacon
+        solid (no flashing) at BEACON_PURGE_MAX_CODE and sample+log its drive current every
+        tick. Same one-shot-latch / no-internal-off shape as the sphere path in _apply() —
+        stopped only by this task being stopped (see class docstring); teardown() zeroes it.
+        """
+        if not self._beacon_on:
+            self._beacon.on()
+            self._beacon_on = True
+            logger.info(
+                "LightingTask: purge_mode — beacon latched solid at code %d at task start — "
+                "will not turn off internally; stopped externally at apogee",
+                BEACON_PURGE_MAX_CODE,
+            )
+
+        self._beacon_current_a = self._beacon.read_current_a()
+        self._log_beacon_current(self._beacon_current_a)
+
+    def _log_beacon_current(self, current_a: float) -> None:
+        """Once/sec, log the beacon's achieved sample rate plus current spread — same shape
+        as _log_loop_stats() for the sphere, so purge-mode current draw is as visible in
+        flight.log as the sphere current-hold loop normally is."""
+        self._loop_iters += 1
+        self._loop_current_min = min(self._loop_current_min, current_a)
+        self._loop_current_max = max(self._loop_current_max, current_a)
+        self._loop_current_sum += current_a
+
+        now = time.monotonic()
+        if self._loop_rate_log_t == 0.0:
+            self._loop_rate_log_t = now
+            return
+        elapsed = now - self._loop_rate_log_t
+        if elapsed >= 1.0:
+            mean_a = self._loop_current_sum / self._loop_iters
+            logger.info(
+                "LightingTask: purge beacon %.1f Hz (%d samples/%.2fs) — "
+                "mean=%.4f A min=%.4f A max=%.4f A spread=%.4f A",
+                self._loop_iters / elapsed, self._loop_iters, elapsed,
+                mean_a, self._loop_current_min, self._loop_current_max,
+                self._loop_current_max - self._loop_current_min,
+            )
+            self._loop_iters = 0
+            self._loop_current_min = float("inf")
+            self._loop_current_max = float("-inf")
+            self._loop_current_sum = 0.0
+            self._loop_rate_log_t = now
 
     def _log_loop_stats(self, state: LedState) -> None:
         """Once/sec, log the achieved update() rate plus the current spread seen within that

@@ -294,6 +294,7 @@ def main() -> None:
             sphere_ki=config.tasks["lighting"].extra.get("sphere_ki"),
             beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
             beacon_flash_hz=config.tasks["lighting"].extra.get("beacon_flash_hz", 2.0),
+            purge_mode=config.tasks["lighting"].extra.get("purge_mode", False),
         )
     )
 
