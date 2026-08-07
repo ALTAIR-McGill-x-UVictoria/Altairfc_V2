@@ -1,6 +1,16 @@
-"""Interactive production test for the complete UVIC PDRO board."""
+"""Production tests for the complete UVIC PDRO and sphere LED system.
+
+Run the automated, launch-day test sequence with::
+
+    python tests/test_UVICPDRO_ADC.py --prelaunch
+
+The sequence verifies ADC configuration readback and both temperature sensors,
+checks for photodiode dark current at 3 V bias on each high-gain TIA, then
+drives the integrating-sphere LEDs and checks both low-gain TIA responses.
+"""
 
 import argparse
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -15,12 +25,24 @@ from drivers.uvic_pdro import (  # noqa: E402
     ThermistorReading,
     UVICPDRO,
 )
+from drivers.sphere_led import MAX_SAFE_CODE, SphereLedSource  # noqa: E402
 
 
 READOUT_NAMES = {
     Readout.SERGEANT: "Sergeant",
     Readout.SOLDIER: "Soldier",
 }
+
+DEFAULT_BIAS_V = 3.0
+DEFAULT_LED_CODE = 700
+DEFAULT_SAMPLES = 5
+DEFAULT_MIN_BIAS_DROP_V = 0.0
+DEFAULT_MIN_LED_DROP_V = 0.1
+DEFAULT_ADC_RAIL_MARGIN_V = 0.05
+DEFAULT_SETTLE_S = 0.5
+VOLTAGE_COMPARISON_EPSILON_V = 1e-6
+ADC_MIN_V = 0.0
+ADC_MAX_V = 5.0
 
 
 def readout_name(readout: Readout) -> str:
@@ -43,6 +65,7 @@ def check_range(name, val, expected_min, expected_max, unit="V"):
         f"  {name:25} | Actual: {actual_str:18} | "
         f"Expected: {expected_str:30} | {color}[{status}]{reset}"
     )
+    return passed
 
 
 def check_thermistor(name, therm_out, expected_min, expected_max):
@@ -63,6 +86,230 @@ def check_thermistor(name, therm_out, expected_min, expected_max):
         f"  {name:25} | Actual: {actual_str:18} | "
         f"Expected: {expected_str:30} | {color}[{status}]{reset}"
     )
+    return passed
+
+
+def check_condition(name, actual, expected, passed):
+    """Print one boolean production-test result and return it."""
+
+    status = "PASS" if passed else "FAIL"
+    color = "\033[92m" if passed else "\033[91m\033[1m"
+    reset = "\033[0m"
+    print(
+        f"  {name:25} | Actual: {actual:18} | "
+        f"Expected: {expected:30} | {color}[{status}]{reset}"
+    )
+    return passed
+
+
+def _mean_voltage(pdro, readout, input_channel, signal_path, samples, sleep_fn):
+    """Select a relay path once, let it settle, and average ADC conversions."""
+
+    pdro.set_signal_paths(readout, signal_path)
+    sleep_fn(pdro.RELAY_SETTLE_S)
+    readings = [
+        pdro.read_voltage(readout, input_channel, select_signal_path=False)
+        for _ in range(samples)
+    ]
+    if any(value is None for value in readings):
+        return None
+    return statistics.fmean(readings)
+
+
+def run_prelaunch_sequence(
+    pdro,
+    led,
+    *,
+    bias_v=DEFAULT_BIAS_V,
+    led_code=DEFAULT_LED_CODE,
+    samples=DEFAULT_SAMPLES,
+    min_bias_drop_v=DEFAULT_MIN_BIAS_DROP_V,
+    min_led_drop_v=DEFAULT_MIN_LED_DROP_V,
+    adc_rail_margin_v=DEFAULT_ADC_RAIL_MARGIN_V,
+    settle_s=DEFAULT_SETTLE_S,
+    sleep_fn=time.sleep,
+):
+    """Exercise the complete flight photodiode/LED signal chain.
+
+    Returns ``True`` only when every check on every open readout passes.  The
+    caller must open both readouts for the launch test.  Cleanup is performed
+    here as well as by the drivers' context managers so an interrupted or
+    failed check does not leave optical power or photodiode bias applied.
+    """
+
+    if set(pdro.readouts) != set(Readout):
+        raise ValueError("the prelaunch sequence requires both PDRO readouts")
+    if samples < 1:
+        raise ValueError("samples must be at least 1")
+    if not 0 < bias_v <= pdro.MAX_BIAS_V:
+        raise ValueError(
+            f"bias_v must be greater than 0 and at most {pdro.MAX_BIAS_V}"
+        )
+    if not 0 < led_code <= MAX_SAFE_CODE:
+        raise ValueError(f"led_code must be between 1 and {MAX_SAFE_CODE}")
+    if min_bias_drop_v < 0 or min_led_drop_v < 0:
+        raise ValueError("minimum voltage drops cannot be negative")
+    if settle_s < 0:
+        raise ValueError("settle_s cannot be negative")
+    if not 0 <= adc_rail_margin_v < (ADC_MAX_V - ADC_MIN_V) / 2:
+        raise ValueError("adc_rail_margin_v is outside the ADC input range")
+
+    passed = True
+    try:
+        led.all_off()
+        for readout in pdro.readouts:
+            pdro.set_bias_voltage(readout, 0.0)
+            pdro.set_signal_paths(readout, SignalPath.NONE)
+
+        print("\n" + "=" * 105)
+        print(" " * 34 + "PRELAUNCH PHOTODIODE / LED TEST")
+        print("=" * 105)
+
+        print("\n1. ADC configuration readback and temperature ranges")
+        for readout in pdro.readouts:
+            print(f"\n--- {readout_name(readout)} ---")
+            expected_config = pdro.configure_input(
+                readout, Input.VGND, DataRate.SPS_1000
+            )
+            read_config = pdro.read_adc_config(readout)
+            config_ok = expected_config is not None and read_config == expected_config
+            passed &= check_condition(
+                "Config Read/Write",
+                "Match" if config_ok else "Mismatch",
+                "Match",
+                config_ok,
+            )
+            passed &= check_thermistor(
+                "Board Thermistor",
+                pdro.read_board_thermistor(readout),
+                20.0,
+                40.0,
+            )
+            passed &= check_thermistor(
+                "Photodiode Thermistor",
+                pdro.read_photodiode_thermistor(readout),
+                20.0,
+                40.0,
+            )
+
+        print(f"\n2. High-gain dark-current response at {bias_v:.3f} V bias")
+        for readout in pdro.readouts:
+            actual_bias = pdro.set_bias_voltage(readout, bias_v)
+            print(f"  {readout_name(readout)} bias set to {actual_bias:.6f} V")
+        sleep_fn(settle_s)
+
+        for readout in pdro.readouts:
+            print(f"\n--- {readout_name(readout)} ---")
+            vgnd_v = _mean_voltage(
+                pdro,
+                readout,
+                Input.VGND,
+                SignalPath.NONE,
+                samples,
+                sleep_fn,
+            )
+            tia_v = _mean_voltage(
+                pdro,
+                readout,
+                Input.TIA,
+                SignalPath.TIA,
+                samples,
+                sleep_fn,
+            )
+            if vgnd_v is None or tia_v is None:
+                passed &= check_condition(
+                    "Biased high-gain TIA",
+                    "Read failed",
+                    f"> {min_bias_drop_v:.3f} V drop",
+                    False,
+                )
+                continue
+            drop_v = vgnd_v - tia_v
+            passed &= check_condition(
+                "Biased high-gain TIA",
+                f"drop {drop_v:.6f} V",
+                f"> {min_bias_drop_v:.3f} V below VGND",
+                drop_v > min_bias_drop_v + VOLTAGE_COMPARISON_EPSILON_V,
+            )
+            print(f"    VGND={vgnd_v:.6f} V, biased TIA={tia_v:.6f} V")
+
+        print(f"\n3. Low-gain integrating-sphere LED response (DAC code {led_code})")
+        led.all_off()
+        sleep_fn(settle_s)
+        dark: dict[Readout, float | None] = {}
+        for readout in pdro.readouts:
+            dark[readout] = _mean_voltage(
+                pdro,
+                readout,
+                Input.TIA_LOW_GAIN,
+                SignalPath.TIA_LOW_GAIN,
+                samples,
+                sleep_fn,
+            )
+
+        led.set_code(led_code)
+        sleep_fn(settle_s)
+        for readout in pdro.readouts:
+            print(f"\n--- {readout_name(readout)} ---")
+            lit_v = _mean_voltage(
+                pdro,
+                readout,
+                Input.TIA_LOW_GAIN,
+                SignalPath.TIA_LOW_GAIN,
+                samples,
+                sleep_fn,
+            )
+            dark_v = dark[readout]
+            if dark_v is None or lit_v is None:
+                passed &= check_condition(
+                    "LED response",
+                    "Read failed",
+                    f"> {min_led_drop_v:.3f} V drop",
+                    False,
+                )
+                passed &= check_condition(
+                    "Low-gain not saturated", "Read failed", "Inside ADC rails", False
+                )
+                continue
+
+            drop_v = dark_v - lit_v
+            passed &= check_condition(
+                "LED response",
+                f"drop {drop_v:.6f} V",
+                f"> {min_led_drop_v:.3f} V",
+                drop_v > min_led_drop_v + VOLTAGE_COMPARISON_EPSILON_V,
+            )
+            lower_limit = ADC_MIN_V + adc_rail_margin_v
+            upper_limit = ADC_MAX_V - adc_rail_margin_v
+            passed &= check_condition(
+                "Low-gain not saturated",
+                f"{lit_v:.6f} V",
+                f"{lower_limit:.3f} < V < {upper_limit:.3f}",
+                lower_limit < lit_v < upper_limit,
+            )
+            print(f"    LEDs off={dark_v:.6f} V, LEDs on={lit_v:.6f} V")
+    finally:
+        try:
+            led.all_off()
+        except Exception as exc:
+            print(f"  [FAIL] Could not turn sphere LEDs off: {exc}", file=sys.stderr)
+            passed = False
+        for readout in pdro.readouts:
+            try:
+                pdro.set_bias_voltage(readout, 0.0)
+                pdro.set_signal_paths(readout, SignalPath.NONE)
+            except Exception as exc:
+                print(
+                    f"  [FAIL] Could not make {readout_name(readout)} safe: {exc}",
+                    file=sys.stderr,
+                )
+                passed = False
+
+    print("\n" + "=" * 105)
+    print("PRELAUNCH RESULT: " + ("PASS" if passed else "FAIL"))
+    print("Sphere LEDs off; both photodiode biases set to 0 V; all PDRO relays open.")
+    print("=" * 105 + "\n")
+    return passed
 
 
 def run_all_checks(pdro: UVICPDRO):
@@ -377,6 +624,64 @@ def main() -> int:
         default=3,
         help="Select readout: 1 for Sergeant, 2 for Soldier, 3 for both (default)",
     )
+    parser.add_argument(
+        "--prelaunch",
+        action="store_true",
+        help="Run the automated photodiode/sphere-LED launch test and exit",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=DEFAULT_SAMPLES,
+        help="ADC samples averaged per prelaunch measurement",
+    )
+    parser.add_argument(
+        "--bias-voltage",
+        type=float,
+        default=DEFAULT_BIAS_V,
+        help="Photodiode bias used by --prelaunch",
+    )
+    parser.add_argument(
+        "--led-code",
+        type=int,
+        default=DEFAULT_LED_CODE,
+        help=f"Sphere LED DAC code used by --prelaunch (1-{MAX_SAFE_CODE})",
+    )
+    parser.add_argument(
+        "--min-bias-drop",
+        type=float,
+        default=DEFAULT_MIN_BIAS_DROP_V,
+        help="Minimum high-gain drop below VGND, volts",
+    )
+    parser.add_argument(
+        "--min-led-drop",
+        type=float,
+        default=DEFAULT_MIN_LED_DROP_V,
+        help="Minimum LED-on low-gain drop, volts",
+    )
+    parser.add_argument(
+        "--rail-margin",
+        type=float,
+        default=DEFAULT_ADC_RAIL_MARGIN_V,
+        help="Distance from either ADC rail required to count as unsaturated, volts",
+    )
+    parser.add_argument(
+        "--settle",
+        type=float,
+        default=DEFAULT_SETTLE_S,
+        help="Bias and LED settling time, seconds",
+    )
+    parser.add_argument(
+        "--bus", type=int, default=1, help="I2C bus for the sphere LED board"
+    )
+    parser.add_argument(
+        "--i2c-dev", default="/dev/i2c-1", help="I2C device for the sphere LED DAC"
+    )
+    parser.add_argument(
+        "--no-ldac",
+        action="store_true",
+        help="Do not drive LDAC (only if it is hardwired low)",
+    )
     args = parser.parse_args()
     selected = {
         1: (Readout.SERGEANT,),
@@ -384,10 +689,43 @@ def main() -> int:
         3: tuple(Readout),
     }[args.board]
 
+    if args.prelaunch and args.board != 3:
+        print("Prelaunch testing requires --board 3 (both readouts).", file=sys.stderr)
+        return 2
+
     try:
         with UVICPDRO(readouts=selected) as pdro:
-            interactive_menu(pdro)
-    except (OSError, RuntimeError) as exc:
+            if not args.prelaunch:
+                interactive_menu(pdro)
+                return 0
+
+            try:
+                import smbus2
+            except ImportError as exc:
+                raise RuntimeError("smbus2 is required for the sphere LED test") from exc
+
+            bus = smbus2.SMBus(args.bus)
+            try:
+                with SphereLedSource(
+                    bus=bus,
+                    i2c_dev=args.i2c_dev,
+                    use_ldac=not args.no_ldac,
+                ) as led:
+                    passed = run_prelaunch_sequence(
+                        pdro,
+                        led,
+                        bias_v=args.bias_voltage,
+                        led_code=args.led_code,
+                        samples=args.samples,
+                        min_bias_drop_v=args.min_bias_drop,
+                        min_led_drop_v=args.min_led_drop,
+                        adc_rail_margin_v=args.rail_margin,
+                        settle_s=args.settle,
+                    )
+            finally:
+                bus.close()
+            return 0 if passed else 1
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"Failed to initialize or operate UVIC PDRO: {exc}", file=sys.stderr)
         return 1
     return 0
