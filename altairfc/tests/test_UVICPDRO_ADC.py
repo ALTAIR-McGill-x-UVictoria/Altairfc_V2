@@ -3,10 +3,12 @@
 Run the automated, launch-day test sequence with::
 
     python tests/test_UVICPDRO_ADC.py --prelaunch
+    python tests/test_UVICPDRO_ADC.py --prelaunch --manual-illumination
 
 The sequence verifies ADC configuration readback and both temperature sensors,
 checks for photodiode dark current at 3 V bias on each high-gain TIA, then
-drives the integrating-sphere LEDs and checks both low-gain TIA responses.
+checks both low-gain TIA responses using either the integrating-sphere LEDs or
+10 seconds of user-provided illumination.
 """
 
 import argparse
@@ -40,6 +42,8 @@ DEFAULT_MIN_BIAS_DROP_V = 0.0
 DEFAULT_MIN_LED_DROP_V = 0.1
 DEFAULT_ADC_RAIL_MARGIN_V = 0.05
 DEFAULT_SETTLE_S = 0.5
+DEFAULT_MANUAL_ILLUMINATION_S = 10.0
+DEFAULT_MONITOR_INTERVAL_S = 0.1
 VOLTAGE_COMPARISON_EPSILON_V = 1e-6
 ADC_MIN_V = 0.0
 ADC_MAX_V = 5.0
@@ -116,9 +120,99 @@ def _mean_voltage(pdro, readout, input_channel, signal_path, samples, sleep_fn):
     return statistics.fmean(readings)
 
 
+def _check_low_gain_response(
+    readout,
+    dark_v,
+    response_v,
+    *,
+    min_drop_v,
+    rail_margin_v,
+    response_label,
+):
+    """Check one low-gain response against the drop and ADC-rail limits."""
+
+    print(f"\n--- {readout_name(readout)} ---")
+    if dark_v is None or response_v is None:
+        response_ok = check_condition(
+            response_label,
+            "Read failed",
+            f"> {min_drop_v:.3f} V drop",
+            False,
+        )
+        rail_ok = check_condition(
+            "Low-gain not saturated", "Read failed", "Inside ADC rails", False
+        )
+        return response_ok and rail_ok
+
+    drop_v = dark_v - response_v
+    response_ok = check_condition(
+        response_label,
+        f"drop {drop_v:.6f} V",
+        f"> {min_drop_v:.3f} V",
+        drop_v > min_drop_v + VOLTAGE_COMPARISON_EPSILON_V,
+    )
+    lower_limit = ADC_MIN_V + rail_margin_v
+    upper_limit = ADC_MAX_V - rail_margin_v
+    rail_ok = check_condition(
+        "Low-gain not saturated",
+        f"{response_v:.6f} V",
+        f"{lower_limit:.3f} < V < {upper_limit:.3f}",
+        lower_limit < response_v < upper_limit,
+    )
+    print(f"    Baseline={dark_v:.6f} V, minimum observed={response_v:.6f} V")
+    return response_ok and rail_ok
+
+
+def _monitor_manual_illumination(
+    pdro,
+    *,
+    duration_s,
+    interval_s,
+    sleep_fn,
+    monotonic_fn,
+):
+    """Display both low-gain outputs and retain each minimum over the window."""
+
+    observed: dict[Readout, list[float]] = {
+        readout: [] for readout in pdro.readouts
+    }
+    print(
+        f"\n  Shine a light into the sphere now. Monitoring both outputs for "
+        f"{duration_s:.1f} seconds..."
+    )
+    deadline = monotonic_fn() + duration_s
+    while monotonic_fn() < deadline:
+        current: dict[Readout, float | None] = {}
+        for readout in pdro.readouts:
+            value = pdro.read_voltage(
+                readout, Input.TIA_LOW_GAIN, select_signal_path=False
+            )
+            current[readout] = value
+            if value is not None:
+                observed[readout].append(value)
+
+        remaining_s = max(0.0, deadline - monotonic_fn())
+        values = "  ".join(
+            f"{READOUT_NAMES[readout]}="
+            + (
+                f"{current[readout]:.6f} V"
+                if current[readout] is not None
+                else "FAILED"
+            )
+            for readout in pdro.readouts
+        )
+        print(f"  {remaining_s:4.1f} s remaining | {values}", end="\r", flush=True)
+        sleep_fn(min(interval_s, remaining_s))
+    print()
+    return {
+        readout: min(values) if values else None
+        for readout, values in observed.items()
+    }
+
+
 def run_prelaunch_sequence(
     pdro,
-    led,
+    led=None,
     *,
     bias_v=DEFAULT_BIAS_V,
     led_code=DEFAULT_LED_CODE,
@@ -127,7 +221,11 @@ def run_prelaunch_sequence(
     min_led_drop_v=DEFAULT_MIN_LED_DROP_V,
     adc_rail_margin_v=DEFAULT_ADC_RAIL_MARGIN_V,
     settle_s=DEFAULT_SETTLE_S,
+    manual_illumination=False,
+    manual_duration_s=DEFAULT_MANUAL_ILLUMINATION_S,
+    monitor_interval_s=DEFAULT_MONITOR_INTERVAL_S,
     sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
 ):
     """Exercise the complete flight photodiode/LED signal chain.
 
@@ -145,18 +243,25 @@ def run_prelaunch_sequence(
         raise ValueError(
             f"bias_v must be greater than 0 and at most {pdro.MAX_BIAS_V}"
         )
-    if not 0 < led_code <= MAX_SAFE_CODE:
+    if not manual_illumination and led is None:
+        raise ValueError(
+            "an LED source is required unless manual illumination is selected"
+        )
+    if not manual_illumination and not 0 < led_code <= MAX_SAFE_CODE:
         raise ValueError(f"led_code must be between 1 and {MAX_SAFE_CODE}")
     if min_bias_drop_v < 0 or min_led_drop_v < 0:
         raise ValueError("minimum voltage drops cannot be negative")
     if settle_s < 0:
         raise ValueError("settle_s cannot be negative")
+    if manual_duration_s <= 0 or monitor_interval_s <= 0:
+        raise ValueError("manual illumination duration and interval must be positive")
     if not 0 <= adc_rail_margin_v < (ADC_MAX_V - ADC_MIN_V) / 2:
         raise ValueError("adc_rail_margin_v is outside the ADC input range")
 
     passed = True
     try:
-        led.all_off()
+        if led is not None:
+            led.all_off()
         for readout in pdro.readouts:
             pdro.set_bias_voltage(readout, 0.0)
             pdro.set_signal_paths(readout, SignalPath.NONE)
@@ -233,8 +338,13 @@ def run_prelaunch_sequence(
             )
             print(f"    VGND={vgnd_v:.6f} V, biased TIA={tia_v:.6f} V")
 
-        print(f"\n3. Low-gain integrating-sphere LED response (DAC code {led_code})")
-        led.all_off()
+        if manual_illumination:
+            print("\n3. Low-gain manual illumination response")
+        else:
+            print(
+                f"\n3. Low-gain integrating-sphere LED response (DAC code {led_code})"
+            )
+            led.all_off()
         sleep_fn(settle_s)
         dark: dict[Readout, float | None] = {}
         for readout in pdro.readouts:
@@ -247,53 +357,50 @@ def run_prelaunch_sequence(
                 sleep_fn,
             )
 
-        led.set_code(led_code)
-        sleep_fn(settle_s)
-        for readout in pdro.readouts:
-            print(f"\n--- {readout_name(readout)} ---")
-            lit_v = _mean_voltage(
+        if manual_illumination:
+            response = _monitor_manual_illumination(
                 pdro,
-                readout,
-                Input.TIA_LOW_GAIN,
-                SignalPath.TIA_LOW_GAIN,
-                samples,
-                sleep_fn,
+                duration_s=manual_duration_s,
+                interval_s=monitor_interval_s,
+                sleep_fn=sleep_fn,
+                monotonic_fn=monotonic_fn,
             )
-            dark_v = dark[readout]
-            if dark_v is None or lit_v is None:
-                passed &= check_condition(
-                    "LED response",
-                    "Read failed",
-                    f"> {min_led_drop_v:.3f} V drop",
-                    False,
+            response_label = "Manual light response"
+        else:
+            led.set_code(led_code)
+            sleep_fn(settle_s)
+            response = {
+                readout: _mean_voltage(
+                    pdro,
+                    readout,
+                    Input.TIA_LOW_GAIN,
+                    SignalPath.TIA_LOW_GAIN,
+                    samples,
+                    sleep_fn,
                 )
-                passed &= check_condition(
-                    "Low-gain not saturated", "Read failed", "Inside ADC rails", False
-                )
-                continue
+                for readout in pdro.readouts
+            }
+            response_label = "LED response"
 
-            drop_v = dark_v - lit_v
-            passed &= check_condition(
-                "LED response",
-                f"drop {drop_v:.6f} V",
-                f"> {min_led_drop_v:.3f} V",
-                drop_v > min_led_drop_v + VOLTAGE_COMPARISON_EPSILON_V,
+        for readout in pdro.readouts:
+            passed &= _check_low_gain_response(
+                readout,
+                dark[readout],
+                response[readout],
+                min_drop_v=min_led_drop_v,
+                rail_margin_v=adc_rail_margin_v,
+                response_label=response_label,
             )
-            lower_limit = ADC_MIN_V + adc_rail_margin_v
-            upper_limit = ADC_MAX_V - adc_rail_margin_v
-            passed &= check_condition(
-                "Low-gain not saturated",
-                f"{lit_v:.6f} V",
-                f"{lower_limit:.3f} < V < {upper_limit:.3f}",
-                lower_limit < lit_v < upper_limit,
-            )
-            print(f"    LEDs off={dark_v:.6f} V, LEDs on={lit_v:.6f} V")
     finally:
-        try:
-            led.all_off()
-        except Exception as exc:
-            print(f"  [FAIL] Could not turn sphere LEDs off: {exc}", file=sys.stderr)
-            passed = False
+        if led is not None:
+            try:
+                led.all_off()
+            except Exception as exc:
+                print(
+                    f"  [FAIL] Could not turn sphere LEDs off: {exc}",
+                    file=sys.stderr,
+                )
+                passed = False
         for readout in pdro.readouts:
             try:
                 pdro.set_bias_voltage(readout, 0.0)
@@ -307,7 +414,10 @@ def run_prelaunch_sequence(
 
     print("\n" + "=" * 105)
     print("PRELAUNCH RESULT: " + ("PASS" if passed else "FAIL"))
-    print("Sphere LEDs off; both photodiode biases set to 0 V; all PDRO relays open.")
+    safe_state = "Both photodiode biases set to 0 V; all PDRO relays open."
+    if led is not None:
+        safe_state = "Sphere LEDs off; " + safe_state.lower()
+    print(safe_state)
     print("=" * 105 + "\n")
     return passed
 
@@ -630,6 +740,12 @@ def main() -> int:
         help="Run the automated photodiode/sphere-LED launch test and exit",
     )
     parser.add_argument(
+        "--manual-illumination",
+        action="store_true",
+        help="During --prelaunch, monitor low-gain outputs for 10 seconds while "
+        "the user shines a light into the sphere instead of driving its LEDs",
+    )
+    parser.add_argument(
         "--samples",
         type=int,
         default=DEFAULT_SAMPLES,
@@ -692,12 +808,32 @@ def main() -> int:
     if args.prelaunch and args.board != 3:
         print("Prelaunch testing requires --board 3 (both readouts).", file=sys.stderr)
         return 2
+    if args.manual_illumination and not args.prelaunch:
+        print("--manual-illumination requires --prelaunch.", file=sys.stderr)
+        return 2
 
     try:
         with UVICPDRO(readouts=selected) as pdro:
             if not args.prelaunch:
                 interactive_menu(pdro)
                 return 0
+
+            sequence_args = {
+                "bias_v": args.bias_voltage,
+                "led_code": args.led_code,
+                "samples": args.samples,
+                "min_bias_drop_v": args.min_bias_drop,
+                "min_led_drop_v": args.min_led_drop,
+                "adc_rail_margin_v": args.rail_margin,
+                "settle_s": args.settle,
+            }
+            if args.manual_illumination:
+                passed = run_prelaunch_sequence(
+                    pdro,
+                    manual_illumination=True,
+                    **sequence_args,
+                )
+                return 0 if passed else 1
 
             try:
                 import smbus2
@@ -714,13 +850,7 @@ def main() -> int:
                     passed = run_prelaunch_sequence(
                         pdro,
                         led,
-                        bias_v=args.bias_voltage,
-                        led_code=args.led_code,
-                        samples=args.samples,
-                        min_bias_drop_v=args.min_bias_drop,
-                        min_led_drop_v=args.min_led_drop,
-                        adc_rail_margin_v=args.rail_margin,
-                        settle_s=args.settle,
+                        **sequence_args,
                     )
             finally:
                 bus.close()
