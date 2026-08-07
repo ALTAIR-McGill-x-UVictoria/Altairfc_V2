@@ -290,7 +290,7 @@ class ads124s08Driver:
             return None
         resistance = self._lib.ads124s08_thermistor_volts_to_resistance(volts)
         # pd thermistor has different beta of 3950. convert resistance to temp here with our own calculation, not the c driver
-        temperature_k = 1.0 / (1.0 / 3950.0 + math.log(resistance / 10000.0) / 3950.0)
+        temperature_k = 1.0 / (1.0 / 298.15 + math.log(resistance / 10000.0) / 3950.0)
         temperature_c = temperature_k - 273.15
         return ThermistorReading(
             volts=volts, resistance_ohm=resistance, temperature_c=temperature_c
