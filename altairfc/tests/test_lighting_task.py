@@ -148,6 +148,16 @@ class _FakeSphere:
         self.target_current_a = None
         self._pair.sphere_code = 0
 
+    @property
+    def code(self) -> int:
+        return self._pair.sphere_code
+
+    def read_current_a(self) -> float:
+        return self.target_current_a or 0.0
+
+    def read_bridge_temperature_c(self) -> float:
+        return 20.0
+
 
 class _FakeBeacon:
     """Mimics BeaconChannel's brightness (ch1) + on()/off() (ch3 relay) -- independent of the sphere."""
@@ -168,6 +178,13 @@ class _FakeBeacon:
     def all_off(self) -> None:
         self.brightness_code = 0
         self._pair.relay_code = 0
+
+    @property
+    def code(self) -> int:
+        return self.brightness_code
+
+    def read_current_a(self) -> float:
+        return 0.0
 
 
 def _make_task(**kwargs) -> tuple[LightingTask, _FakeChannelState]:

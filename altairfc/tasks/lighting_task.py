@@ -11,7 +11,7 @@ from core.task_base import BaseTask
 from drivers.ads1115 import SENSE_RESISTOR_OHM
 from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BEACON_SENSE_RESISTOR_OHM, BeaconChannel
 from drivers.led_board import LedBoard
-from drivers.sphere_led import SphereLedSource
+from drivers.sphere_led import LedState, SphereLedSource
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,11 @@ class LightingTask(BaseTask):
         lighting.beacon_on              (int 0/1)
         lighting.observation_active     (int 0/1, mirrors event.ascent_active)
         lighting.next_beacon_flash_in_s (float, seconds until next beacon window; 0 if active)
+        lighting.sphere_dac_code        (int, live MCP4728 code, SphereLedSource.code)
+        lighting.sphere_current_a       (float, ADS1115 current-sense reading)
+        lighting.sphere_temperature_c   (float, thermistor bridge reading)
+        lighting.beacon_dac_code        (int, live MCP4728 code, BeaconChannel.code)
+        lighting.beacon_current_a       (float, ADS1115 current-sense reading)
     """
 
     def __init__(
@@ -238,17 +243,42 @@ class LightingTask(BaseTask):
         else:
             next_in_s = float("inf")
 
+        sphere_state = None
         if self._board is not None:
-            self._apply(observation_active, active_beacon_window, now_s)
+            sphere_state = self._apply(observation_active, active_beacon_window, now_s)
 
         self.datastore.write("lighting.sphere_on", int(self._sphere_on))
         self.datastore.write("lighting.beacon_on", int(self._beacon_on))
         self.datastore.write("lighting.observation_active", int(observation_active))
         self.datastore.write("lighting.next_beacon_flash_in_s", next_in_s)
+        self._write_channel_telemetry(sphere_state)
+
+    def _write_channel_telemetry(self, sphere_state: LedState | None) -> None:
+        """DAC code + measured current for both channels, plus sphere temperature.
+
+        sphere_state, when given, is the LedState _apply() already got out of
+        SphereLedSource.update() this tick -- reused here instead of taking a
+        second ADC/thermistor reading. Falls back to a fresh read when the
+        sphere hasn't been engaged yet (update() not called), so the fields
+        are still populated at their idle values pre-launch. The beacon is
+        open-loop with no per-tick update(), so it's always read fresh here.
+        """
+        if self._sphere is not None:
+            if sphere_state is not None:
+                self.datastore.write("lighting.sphere_dac_code", sphere_state.code)
+                self.datastore.write("lighting.sphere_current_a", sphere_state.current_a)
+                self.datastore.write("lighting.sphere_temperature_c", sphere_state.temperature_c)
+            else:
+                self.datastore.write("lighting.sphere_dac_code", self._sphere.code)
+                self.datastore.write("lighting.sphere_current_a", self._sphere.read_current_a())
+                self.datastore.write("lighting.sphere_temperature_c", self._sphere.read_bridge_temperature_c())
+        if self._beacon is not None:
+            self.datastore.write("lighting.beacon_dac_code", self._beacon.code)
+            self.datastore.write("lighting.beacon_current_a", self._beacon.read_current_a())
 
     def _apply(
         self, observation_active: bool, active_beacon_window: ImagingWindow | None, now_s: float
-    ) -> None:
+    ) -> LedState | None:
         # One-shot latch: engages the moment this task starts (no longer
         # gated on event.ascent_active) and there is no internal path back
         # off. It only ever stops via this task being stopped (see the
@@ -264,9 +294,13 @@ class LightingTask(BaseTask):
                 self._sphere_target_current_a,
             )
 
+        sphere_state = None
         if self._sphere_on:
-            state = self._sphere.update()
-            self._log_loop_stats("sphere", state.target_current_a, state.current_a, state.settled, state.code)
+            sphere_state = self._sphere.update()
+            self._log_loop_stats(
+                "sphere", sphere_state.target_current_a, sphere_state.current_a,
+                sphere_state.settled, sphere_state.code,
+            )
 
         # Independent of the sphere: strobe on/off at beacon_flash_hz while inside a
         # beacon_windows entry (which are defined as the times ground imaging is NOT
@@ -277,6 +311,8 @@ class LightingTask(BaseTask):
             active_beacon_window is not None and flash_state(now_s, self._beacon_flash_hz)
         )
         self._set_beacon(beacon_should_flash_on)
+
+        return sphere_state
 
     def _log_loop_stats(
         self, channel: str, target_current_a: float | None, current_a: float, settled: bool, code: int
