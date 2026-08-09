@@ -111,6 +111,17 @@ BEACON_SENSE_RESISTOR_OHM = 1.5
 # first.
 RELAY_SETTLE_S = 0.008
 
+# Settling time after a beacon DAC write (update()'s PI step or _ramp_brightness)
+# before returning control to the caller. Both channels share one physical
+# ADS1115 and one MCP4728 (see drivers/led_board.py) -- a beacon current step
+# lands on the same supply rail / I2C bus the sphere reads from, and at the
+# lighting task's ~30-35 Hz tick rate (~28-33 ms apart) that transient hadn't
+# always settled by the next tick's sphere ADC read, showing up as jumps in
+# the sphere's logged current mean whenever the beacon is actively stepping.
+# Not a measured value -- if bench testing still shows sphere-side jumps
+# correlated with beacon activity, increase this first.
+BEACON_WRITE_SETTLE_S = 0.003
+
 # Total time (and step count) to move brightness between 0 and its setpoint
 # once the relay contact is settled. Deliberately short -- "ramp" here is
 # about softening the current step at the now-closed contact, not a visible
@@ -253,8 +264,12 @@ class BeaconChannel:
                 # actually move the DAC any further this step.
                 if new_code == self.code and new_code in (0, BEACON_MAX_SAFE_CODE):
                     self._integral -= error * dt
-                self._board.write_channel(BEACON_CHANNEL, new_code)
-                self._last_code = new_code
+                if new_code != self.code:
+                    self._board.write_channel(BEACON_CHANNEL, new_code)
+                    self._last_code = new_code
+                    # Let the shared rail/I2C bus settle before returning --
+                    # see BEACON_WRITE_SETTLE_S.
+                    time.sleep(BEACON_WRITE_SETTLE_S)
 
         return BeaconState(
             code=self.code,
