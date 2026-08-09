@@ -129,7 +129,13 @@ class SphereLedSource:
         # tune them from the open-loop soak data before trusting a long run.
         self._kp = 2000.0
         self._ki = 400.0
-        self._deadband_a = 0.001
+        # 0.001 was tighter than this sensor's actual single-sample noise
+        # floor (~0.002-0.003 A around a converged 0.4 A mean, i.e. spread
+        # ~0.005 A across a 1s window) -- "settled" flickered on ordinary ADC
+        # noise even once the loop had genuinely converged (mean pinned on
+        # target, code steady). Widened to match the observed noise floor so
+        # settled reflects real convergence.
+        self._deadband_a = 0.005
         self._max_code_step = 8
 
         if board is not None:

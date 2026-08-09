@@ -154,7 +154,10 @@ class BeaconChannel:
         # tune from soak data before trusting a long run.
         self._kp = 2000.0
         self._ki = 400.0
-        self._deadband_a = 0.001
+        # See SphereLedSource's identical comment: 0.001 was tighter than the
+        # sensor's actual single-sample noise floor, so "settled" flickered
+        # on ADC noise alone even once genuinely converged.
+        self._deadband_a = 0.005
         self._max_code_step = 8
 
     @property
