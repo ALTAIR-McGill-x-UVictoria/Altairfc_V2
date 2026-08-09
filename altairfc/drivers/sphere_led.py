@@ -218,10 +218,30 @@ class SphereLedSource:
                 self._last_update_t = now
 
                 self._integral += error * dt
-                delta = self._kp * error + self._ki * self._integral
+                # Anti-windup: clamp the I-term itself to the same per-step
+                # authority as max_code_step (not just the final delta), and
+                # claw back the stored integral to match whenever that clamp
+                # bites. Without this, a long ramp (cold start, recovering
+                # from a big disturbance) keeps accumulating the *unclamped*
+                # error the whole time, so the integral term ends up
+                # demanding far more correction than the actuator could ever
+                # apply in one step and overshoots badly unwinding it
+                # afterward -- this is what causes the loop to still be
+                # dragging its feet on the way down long after the
+                # proportional term alone would have converged.
+                i_term = self._ki * self._integral
+                i_term_clamped = max(-self._max_code_step, min(self._max_code_step, i_term))
+                if i_term_clamped != i_term and self._ki != 0:
+                    self._integral = i_term_clamped / self._ki
+
+                delta = self._kp * error + i_term_clamped
                 delta = max(-self._max_code_step, min(self._max_code_step, delta))
 
                 new_code = max(0, min(MAX_SAFE_CODE, int(round(self.code + delta))))
+                # Also stop accumulating once railed and the correction can't
+                # actually move the DAC any further this step.
+                if new_code == self.code and new_code in (0, MAX_SAFE_CODE):
+                    self._integral -= error * dt
                 self._board.write_channel(self.channel, new_code)
 
         return LedState(
