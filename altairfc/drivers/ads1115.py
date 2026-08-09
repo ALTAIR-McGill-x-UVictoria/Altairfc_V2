@@ -10,9 +10,9 @@ goniometer rig uses.
 Wiring on this board, which constrains what can be measured:
 
     AIN0        single-ended  MCP4728 channel 0 (sphere source) drive current,
-                              across a 2.2 ohm sense resistor
+                              across a 1.5 ohm sense resistor
     AIN1        single-ended  MCP4728 channel 1 (external spotter beacon) drive
-                              current, across its own 2.2 ohm sense resistor
+                              current, across its own 1.5 ohm sense resistor
     AIN2-AIN3   differential  NTC thermistor Wheatstone bridge
 
 AIN2 and AIN3 are therefore *not* usable single-ended — reading either alone
@@ -66,8 +66,9 @@ THERM_R25 = 10000.0
 THERM_B = 3380.0
 T0_KELVIN = 298.15
 
-# LED drive current sense
-SENSE_RESISTOR_OHM = 2.2
+# LED drive current sense (sphere channel, AIN0) — see config/settings.toml
+# [tasks.lighting].sphere_sense_resistor_ohm for the flight-configurable value.
+SENSE_RESISTOR_OHM = 1.5
 
 
 def bridge_volts_to_resistance(vdiff: float, r: float = BRIDGE_R, vexc: float = VEXC) -> float:

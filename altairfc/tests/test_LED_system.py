@@ -24,8 +24,8 @@ reach VOUT immediately, same as tests/test_led_driver_thermistor.py; pass
 
 Closed-loop current hold (--target-current):
     AIN0/AIN1 sit across their own sense resistor on the sphere/beacon
-    drive current respectively — 2.2 ohm on channel 0, 3 ohm nominal on
-    channel 1, NOT the same value (see drivers/ads1115.py's wiring notes) —
+    drive current respectively — 1.5 ohm nominal on each, but two separate
+    physical resistors (see drivers/ads1115.py's wiring notes) —
     channels 2/3 have no independent current-sense signal, only the
     thermistor bridge, so closed-loop mode is restricted to channel 0/1.
     The RF transceiver on this payload induces a persistent, broadband
@@ -79,10 +79,11 @@ _ADS1115_DR_860SPS = 0b111  # fastest one-shot rate; used for the current-hold c
 _ADS1115_COMP_QUE_DISABLE = 0b11
 
 # LED drive current sense: AIN0/AIN1 each sit across their own sense resistor
-# (sphere/beacon respectively — see drivers/ads1115.py), but the two are NOT
-# the same value: channel 0 is 2.2 ohm, channel 1 is 3 ohm nominal. AIN2/AIN3
-# are the thermistor bridge and carry no independent current signal.
-CURRENT_SENSE_RESISTOR_OHM = {0: 2.2, 1: 3.0}
+# (sphere/beacon respectively — see drivers/ads1115.py). Both are nominally
+# 1.5 ohm, though they are separate physical resistors — see
+# config/settings.toml [tasks.lighting] sphere_/beacon_sense_resistor_ohm.
+# AIN2/AIN3 are the thermistor bridge and carry no independent current signal.
+CURRENT_SENSE_RESISTOR_OHM = {0: 1.5, 1: 1.5}
 CURRENT_SENSE_CHANNELS = tuple(CURRENT_SENSE_RESISTOR_OHM)
 _ADS1115_GAIN_FSR = {
     0: (0b000, 6.144),

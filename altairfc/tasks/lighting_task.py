@@ -8,7 +8,8 @@ from typing import Any
 
 from core.datastore import DataStore
 from core.task_base import BaseTask
-from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BeaconChannel
+from drivers.ads1115 import SENSE_RESISTOR_OHM
+from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BEACON_SENSE_RESISTOR_OHM, BeaconChannel
 from drivers.led_board import LedBoard
 from drivers.sphere_led import LedState, SphereLedSource
 
@@ -143,6 +144,8 @@ class LightingTask(BaseTask):
         sphere_ki: float | None = None,
         beacon_dac_code: int = 1500,
         beacon_flash_hz: float = 2.0,
+        sphere_sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
+        beacon_sense_resistor_ohm: float = BEACON_SENSE_RESISTOR_OHM,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         if beacon_flash_hz <= 0:
@@ -154,6 +157,8 @@ class LightingTask(BaseTask):
         self._sphere_ki = sphere_ki
         self._beacon_dac_code = max(0, min(BEACON_MAX_SAFE_CODE, int(beacon_dac_code)))
         self._beacon_flash_hz = beacon_flash_hz
+        self._sphere_sense_resistor_ohm = sphere_sense_resistor_ohm
+        self._beacon_sense_resistor_ohm = beacon_sense_resistor_ohm
 
         if not self._beacon_windows:
             logger.warning("LightingTask: no beacon windows configured — beacon will never flash")
@@ -199,8 +204,12 @@ class LightingTask(BaseTask):
             import smbus2
             self._bus = smbus2.SMBus(int(self._i2c_dev.replace("/dev/i2c-", "")))
             self._board = LedBoard(bus=self._bus, i2c_dev=self._i2c_dev)
-            self._sphere = SphereLedSource(board=self._board)
-            self._beacon = BeaconChannel(board=self._board)
+            self._sphere = SphereLedSource(
+                board=self._board, sense_resistor_ohm=self._sphere_sense_resistor_ohm
+            )
+            self._beacon = BeaconChannel(
+                board=self._board, sense_resistor_ohm=self._beacon_sense_resistor_ohm
+            )
             self._beacon.set_brightness(self._beacon_dac_code)
         except Exception:
             logger.exception(

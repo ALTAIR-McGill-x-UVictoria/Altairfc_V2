@@ -9,7 +9,7 @@ Examples (run from ``altairfc``):
 Sampling continues until Ctrl+C.  Every measurement is printed and flushed to
 the CSV immediately so that data already collected survives an interrupted run.
 Select ``bridge_temp`` and/or ``current`` with ``-c`` to stream the ADS1115
-AIN2-AIN3 thermistor bridge temperature and AIN0 current through the 2.2 ohm
+AIN2-AIN3 thermistor bridge temperature and AIN0 current through the 1.5 ohm
 current-monitoring resistor alongside the UVIC PDRO channels.
 """
 
@@ -71,7 +71,7 @@ BRIDGE_EXCITATION_V = 3.3
 THERMISTOR_R25_OHM = 10000.0
 THERMISTOR_B_K = 3380.0
 THERMISTOR_T0_K = 298.15
-CURRENT_SENSE_RESISTOR_OHM = 2.2
+CURRENT_SENSE_RESISTOR_OHM = 1.5
 ADS1115_BRIDGE_GAIN = 2
 ADS1115_CURRENT_GAIN = 2
 
@@ -250,7 +250,7 @@ class Ads1115BridgeMonitor:
         )
 
     def read_current(self) -> CurrentReading:
-        """Read AIN0 and interpret its voltage across the 2.2 ohm shunt."""
+        """Read AIN0 and interpret its voltage across the 1.5 ohm shunt."""
         raw_code = self._read_code(ADS1115_MUX_SINGLE_0, self._current_gain)
         _, full_scale_v = ADS1115_GAIN_FSR[self._current_gain]
         voltage_v = raw_code * full_scale_v / 32768.0

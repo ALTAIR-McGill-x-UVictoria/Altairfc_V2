@@ -76,6 +76,8 @@ from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
 from tasks.pointing_task import PointingTask
 from tasks.lighting_task import LightingTask
+from drivers.ads1115 import SENSE_RESISTOR_OHM
+from drivers.beacon_led import BEACON_SENSE_RESISTOR_OHM
 
 
 
@@ -294,6 +296,12 @@ def main() -> None:
             sphere_ki=config.tasks["lighting"].extra.get("sphere_ki"),
             beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
             beacon_flash_hz=config.tasks["lighting"].extra.get("beacon_flash_hz", 2.0),
+            sphere_sense_resistor_ohm=config.tasks["lighting"].extra.get(
+                "sphere_sense_resistor_ohm", SENSE_RESISTOR_OHM
+            ),
+            beacon_sense_resistor_ohm=config.tasks["lighting"].extra.get(
+                "beacon_sense_resistor_ohm", BEACON_SENSE_RESISTOR_OHM
+            ),
         )
     )
 

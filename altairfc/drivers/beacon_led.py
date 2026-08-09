@@ -26,9 +26,11 @@ the relay onto a currentless circuit, waits for the contact to physically
 settle, then ramps brightness up quickly; off() ramps brightness back down to
 0 before de-energizing the relay, so the break happens currentless too.
 
-Current sense is on ADS1115 AIN1, across its own 3 ohm (nominal) sense
-resistor -- a different value from the sphere's 2.2 ohm on AIN0 (see
-tests/test_LED_system.py's CURRENT_SENSE_RESISTOR_OHM); do not reuse
+Current sense is on ADS1115 AIN1, across its own 1.5 ohm (nominal) sense
+resistor -- same nominal value as the sphere's 1.5 ohm on AIN0, but a
+physically separate resistor (see tests/test_LED_system.py's
+CURRENT_SENSE_RESISTOR_OHM and config/settings.toml's
+[tasks.lighting].beacon_sense_resistor_ohm); do not reuse
 drivers.ads1115.SENSE_RESISTOR_OHM (that is the sphere's value) as the
 beacon's default.
 
@@ -69,9 +71,11 @@ logger = logging.getLogger(__name__)
 # the sphere source (MAX_SAFE_CODE=1400 there) — measured/rated limit for this LED.
 BEACON_MAX_SAFE_CODE = 3000
 
-# AIN1's sense resistor for the beacon's drive current — NOT the same value as
-# the sphere's (drivers.ads1115.SENSE_RESISTOR_OHM = 2.2 ohm, channel 0 only).
-BEACON_SENSE_RESISTOR_OHM = 3.0
+# AIN1's sense resistor for the beacon's drive current — a separate physical
+# resistor from the sphere's (drivers.ads1115.SENSE_RESISTOR_OHM, channel 0
+# only), though both are nominally 1.5 ohm. See config/settings.toml
+# [tasks.lighting].beacon_sense_resistor_ohm for the flight-configurable value.
+BEACON_SENSE_RESISTOR_OHM = 1.5
 
 # Time given to the relay's contact to physically close before any brightness
 # current is asked to flow through it. RY5W-K's typical operate time is a few

@@ -14,7 +14,7 @@ Multi-Write; the sphere and beacon can be energized simultaneously (no
 electrical constraint), so LedBoard does not interlock them.
 
 Feedback comes from an ADS1115 (0x4A) on the same bus: this channel's drive
-current across its own 2.2 ohm sense resistor (AIN0), and an NTC Wheatstone
+current across its own 1.5 ohm sense resistor (AIN0), and an NTC Wheatstone
 bridge on AIN2-AIN3, both properties of the sphere source board.
 
 Practical consequences worth being explicit about:

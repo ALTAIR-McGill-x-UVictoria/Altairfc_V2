@@ -85,6 +85,8 @@ sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_l
 sphere_kp = 10000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
 sphere_ki = 1000.0    # confirmed stable against the RF disturbance; drivers/sphere_led.py's own defaults
                       # (2000/400) were untested placeholders, not soak-validated
+sphere_sense_resistor_ohm = 1.5   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
+beacon_sense_resistor_ohm = 1.5   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
 beacon_dac_code = 4095   # PLACEHOLDER — beacon brightness setpoint, MCP4728 channel 1 (0-3000, clamped by
                           # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the channel 3 relay
 beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_windows entry below —
