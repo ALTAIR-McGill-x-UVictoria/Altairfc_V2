@@ -294,9 +294,7 @@ def main() -> None:
             sphere_target_current_a=config.tasks["lighting"].extra.get("sphere_target_current_a"),
             sphere_kp=config.tasks["lighting"].extra.get("sphere_kp"),
             sphere_ki=config.tasks["lighting"].extra.get("sphere_ki"),
-            beacon_target_current_a=config.tasks["lighting"].extra.get("beacon_target_current_a"),
-            beacon_kp=config.tasks["lighting"].extra.get("beacon_kp"),
-            beacon_ki=config.tasks["lighting"].extra.get("beacon_ki"),
+            beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
             beacon_flash_hz=config.tasks["lighting"].extra.get("beacon_flash_hz", 2.0),
             sphere_sense_resistor_ohm=config.tasks["lighting"].extra.get(
                 "sphere_sense_resistor_ohm", SENSE_RESISTOR_OHM

@@ -6,7 +6,6 @@ import types
 import pytest
 
 from core.datastore import DataStore
-from drivers.beacon_led import BeaconState
 from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
@@ -151,20 +150,14 @@ class _FakeSphere:
 
 
 class _FakeBeacon:
-    """Mimics BeaconChannel's current-hold loop (ch1) + on()/off() (ch3 relay) -- independent
-    of the sphere."""
+    """Mimics BeaconChannel's brightness (ch1) + on()/off() (ch3 relay) -- independent of the sphere."""
 
     def __init__(self, pair: _FakeChannelState) -> None:
         self._pair = pair
-        self.target_current_a: float | None = None
-        self.kp: float | None = None
-        self.ki: float | None = None
         self.brightness_code = 0
 
-    def set_target_current(self, target_a: float, *, kp: float | None = None, ki: float | None = None) -> None:
-        self.target_current_a = target_a
-        self.kp = kp
-        self.ki = ki
+    def set_brightness(self, code: int) -> None:
+        self.brightness_code = code
 
     def on(self) -> None:
         self._pair.relay_code = 1
@@ -172,17 +165,7 @@ class _FakeBeacon:
     def off(self) -> None:
         self._pair.relay_code = 0
 
-    def update(self) -> BeaconState:
-        self.brightness_code = 1   # stand-in for "DAC is now driving toward target"
-        return BeaconState(
-            code=self.brightness_code,
-            current_a=self.target_current_a or 0.0,
-            target_current_a=self.target_current_a,
-            settled=True,
-        )
-
     def all_off(self) -> None:
-        self.target_current_a = None
         self.brightness_code = 0
         self._pair.relay_code = 0
 
@@ -199,7 +182,7 @@ def _make_task(**kwargs) -> tuple[LightingTask, _FakeChannelState]:
 def test_apply_turns_sphere_on_immediately():
     """Sphere engages on the very first _apply() call whenever sphere_target_current_a is
     configured — no longer gated on observation_active/event.ascent_active."""
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
     task._apply(True, None, 0.0)  # no active beacon window
 
@@ -227,7 +210,7 @@ def test_apply_beacon_strobes_during_window_even_while_sphere_is_on():
     by construction because beacon_windows are defined as the non-observation windows — see
     LightingTask's class docstring. beacon_flash_hz defaults to 2.0 (period 0.5s, on for the
     first 0.25s of each cycle) — now_s=25.0 lands exactly on a cycle boundary, so it's on."""
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
     task._apply(True, None, 0.0)  # sphere latches on, no window yet
@@ -245,7 +228,7 @@ def test_apply_beacon_toggles_off_between_flashes_within_an_active_window():
     """The window being active is necessary but not sufficient for the beacon to be on — it
     also has to be in the "on" half of the current flash cycle. now_s=25.3 is still inside the
     5s window (25-30) but past the 0.25s on-phase of the 0.5s (2 Hz) flash cycle."""
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0, label="beacon_25")
 
     task._apply(True, w, 25.3)
@@ -255,7 +238,7 @@ def test_apply_beacon_toggles_off_between_flashes_within_an_active_window():
 
 
 def test_apply_leaves_beacon_off_outside_window():
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
 
     task._apply(False, None, 0.0)
 
@@ -266,7 +249,7 @@ def test_apply_leaves_beacon_off_outside_window():
 def test_apply_leaves_sphere_off_when_no_target_current_configured():
     """Per project decision: an unconfigured sphere_target_current_a must never guess a value.
     The beacon still strobes on schedule regardless."""
-    task, pair = _make_task(sphere_target_current_a=None, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=None, beacon_dac_code=777)
     w = ImagingWindow(start_s=25.0, duration_s=5.0, period_s=60.0)
 
     task._apply(True, w, 25.0)
@@ -277,7 +260,7 @@ def test_apply_leaves_sphere_off_when_no_target_current_configured():
 
 
 def test_teardown_zeroes_sphere_and_beacon_including_relay():
-    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_target_current_a=0.35)
+    task, pair = _make_task(sphere_target_current_a=0.2657, beacon_dac_code=777)
     task._apply(True, None, 0.0)
     assert pair.sphere_code != 0
 
@@ -306,7 +289,7 @@ def test_setup_resets_sphere_on_and_beacon_on_across_restarts(monkeypatch):
         def __init__(self, **kwargs) -> None:
             pass
 
-        def set_target_current(self, target_a: float, **kwargs) -> None:
+        def set_brightness(self, code: int) -> None:
             pass
 
     monkeypatch.setattr(lighting_task_module, "BeaconChannel", _StubBeacon)

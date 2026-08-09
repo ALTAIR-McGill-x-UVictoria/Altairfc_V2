@@ -9,7 +9,7 @@ from typing import Any
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.ads1115 import SENSE_RESISTOR_OHM
-from drivers.beacon_led import BEACON_SENSE_RESISTOR_OHM, BeaconChannel
+from drivers.beacon_led import BEACON_MAX_SAFE_CODE, BEACON_SENSE_RESISTOR_OHM, BeaconChannel
 from drivers.led_board import LedBoard
 from drivers.sphere_led import SphereLedSource
 
@@ -94,14 +94,14 @@ class LightingTask(BaseTask):
         e.g. active for 5s at :25 and :55 of every minute), regardless of
         whether the sphere is on. Within an active window it strobes on/off
         as a 50% duty-cycle square wave at beacon_flash_hz (see flash_state())
-        rather than staying continuously lit. The current-hold target
-        (beacon_target_current_a) is set once; each on/off toggle engages/
-        disengages BeaconChannel's PI loop (channel 1) and drives the relay
-        (channel 3) — see drivers/beacon_led.py. beacon_windows are defined as
-        the times ground-based imaging is NOT happening — i.e. the beacon
-        flashing during those windows is exactly why they must stay clear of
-        actual calibration exposures. Outside beacon_windows the beacon is
-        off, so it never contaminates an exposure.
+        rather than staying continuously lit. Open-loop: brightness (MCP4728
+        channel 1) is set once to a fixed DAC code (beacon_dac_code); each
+        on/off toggle drives the relay (channel 3) — see drivers/beacon_led.py.
+        beacon_windows are defined as the times ground-based imaging is NOT
+        happening — i.e. the beacon flashing during those windows is exactly
+        why they must stay clear of actual calibration exposures. Outside
+        beacon_windows the beacon is off, so it never contaminates an
+        exposure.
 
     The sphere and the beacon's relay CAN be energized together — there's no
     electrical constraint against it (drivers.led_board.LedBoard does not
@@ -143,9 +143,7 @@ class LightingTask(BaseTask):
         sphere_target_current_a: float | None = None,
         sphere_kp: float | None = None,
         sphere_ki: float | None = None,
-        beacon_target_current_a: float | None = None,
-        beacon_kp: float | None = None,
-        beacon_ki: float | None = None,
+        beacon_dac_code: int = 1500,
         beacon_flash_hz: float = 2.0,
         sphere_sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
         beacon_sense_resistor_ohm: float = BEACON_SENSE_RESISTOR_OHM,
@@ -158,9 +156,7 @@ class LightingTask(BaseTask):
         self._sphere_target_current_a = sphere_target_current_a
         self._sphere_kp = sphere_kp
         self._sphere_ki = sphere_ki
-        self._beacon_target_current_a = beacon_target_current_a
-        self._beacon_kp = beacon_kp
-        self._beacon_ki = beacon_ki
+        self._beacon_dac_code = max(0, min(BEACON_MAX_SAFE_CODE, int(beacon_dac_code)))
         self._beacon_flash_hz = beacon_flash_hz
         self._sphere_sense_resistor_ohm = sphere_sense_resistor_ohm
         self._beacon_sense_resistor_ohm = beacon_sense_resistor_ohm
@@ -169,8 +165,6 @@ class LightingTask(BaseTask):
             logger.warning("LightingTask: no beacon windows configured — beacon will never flash")
         if self._sphere_target_current_a is None:
             logger.warning("LightingTask: sphere_target_current_a not configured — sphere source will never fire")
-        if self._beacon_target_current_a is None:
-            logger.warning("LightingTask: beacon_target_current_a not configured — beacon will never fire")
 
         self._bus = None
         self._board: LedBoard | None = None
@@ -180,14 +174,11 @@ class LightingTask(BaseTask):
         self._sphere_on = False
         self._beacon_on = False
 
-        # Per-channel current-loop instrumentation: logs each channel's achieved
-        # update() rate plus the current spread seen each second, so both "is the
-        # loop running fast enough" and "is it actually settling" are visible in
-        # flight.log rather than assumed.
-        self._loop_stats = {
-            "sphere": self._new_loop_stats(),
-            "beacon": self._new_loop_stats(),
-        }
+        # Sphere current-loop instrumentation: logs the achieved update() rate plus the
+        # current spread seen each second, so both "is the loop running fast enough" and
+        # "is it actually settling" are visible in flight.log rather than assumed. The
+        # beacon is open-loop (no update() to instrument) -- see drivers/beacon_led.py.
+        self._loop_stats = {"sphere": self._new_loop_stats()}
 
     @staticmethod
     def _new_loop_stats() -> dict[str, float]:
@@ -210,10 +201,7 @@ class LightingTask(BaseTask):
         # like a healthy loop running at speed with target=nan and code=0).
         self._sphere_on = False
         self._beacon_on = False
-        self._loop_stats = {
-            "sphere": self._new_loop_stats(),
-            "beacon": self._new_loop_stats(),
-        }
+        self._loop_stats = {"sphere": self._new_loop_stats()}
         try:
             import smbus2
             self._bus = smbus2.SMBus(int(self._i2c_dev.replace("/dev/i2c-", "")))
@@ -224,10 +212,7 @@ class LightingTask(BaseTask):
             self._beacon = BeaconChannel(
                 board=self._board, sense_resistor_ohm=self._beacon_sense_resistor_ohm
             )
-            if self._beacon_target_current_a is not None:
-                self._beacon.set_target_current(
-                    self._beacon_target_current_a, kp=self._beacon_kp, ki=self._beacon_ki
-                )
+            self._beacon.set_brightness(self._beacon_dac_code)
         except Exception:
             logger.exception(
                 "LightingTask: failed to open LED board on %s — lighting control disabled",
@@ -286,20 +271,17 @@ class LightingTask(BaseTask):
         # Independent of the sphere: strobe on/off at beacon_flash_hz while inside a
         # beacon_windows entry (which are defined as the times ground imaging is NOT
         # happening, so the sphere being on at the same time never contaminates a real
-        # exposure), off otherwise.
+        # exposure), off otherwise. Open-loop -- no per-tick update() to drive, just the
+        # relay toggle (see drivers/beacon_led.py).
         beacon_should_flash_on = (
             active_beacon_window is not None and flash_state(now_s, self._beacon_flash_hz)
         )
         self._set_beacon(beacon_should_flash_on)
 
-        if self._beacon_on:
-            state = self._beacon.update()
-            self._log_loop_stats("beacon", state.target_current_a, state.current_a, state.settled, state.code)
-
     def _log_loop_stats(
         self, channel: str, target_current_a: float | None, current_a: float, settled: bool, code: int
     ) -> None:
-        """Once/sec per channel, log the achieved update() rate plus the current spread seen
+        """Once/sec, log the sphere loop's achieved update() rate plus the current spread seen
         within that window (min/max/mean vs. target) — the rate alone (previously all this
         logged) says nothing about whether the loop is actually settling or oscillating around
         target."""
