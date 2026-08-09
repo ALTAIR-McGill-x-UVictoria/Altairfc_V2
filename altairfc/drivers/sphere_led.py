@@ -74,12 +74,16 @@ VALID_CHANNELS = (HIGH_POWER_CHANNEL,)
 DEFAULT_CHANNEL = HIGH_POWER_CHANNEL
 
 # Hard ceiling on the DAC code, enforced by this driver regardless of what a
-# caller requests (--code, hold_current's PI output, anything). This is a
-# safety limit, not a suggestion — do not raise it without confirming what it
-# is actually protecting against. Raised from 1400 to 2100 for the new sphere
-# LED driver hardware, which requires a DAC output of at least 2100 to reach
-# its operating point.
-MAX_SAFE_CODE = 2100
+# caller requests (--code, hold_current's PI output, anything). Previously
+# 1400, then 2100 for the new sphere LED driver hardware -- but 2100 turned
+# out to be that hardware's minimum output threshold, not a safe maximum: at
+# 0.4 A target the loop railed at code=2100 permanently unable to reach
+# target (measured ~0.0011 A), meaning the operating point needs headroom
+# above 2100. No new measured/rated ceiling exists yet for this hardware, so
+# this now equals MAX_CODE (the DAC's own 12-bit limit) and relies entirely
+# on the PI loop's max_code_step rate limiting, not a fixed ceiling, to avoid
+# overdriving -- replace with a real measured limit once one exists.
+MAX_SAFE_CODE = MAX_CODE
 assert MAX_SAFE_CODE <= MAX_CODE, "MAX_SAFE_CODE must not exceed the DAC's own 12-bit range"
 
 

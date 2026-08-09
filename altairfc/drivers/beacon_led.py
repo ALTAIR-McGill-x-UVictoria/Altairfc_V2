@@ -72,22 +72,30 @@ from drivers.led_board import (
     RELAY_CODE_BEACON_ON,
     LedBoard,
 )
+from drivers.mcp4728_driver import MAX_CODE
 
 logger = logging.getLogger(__name__)
 
 # Hard ceiling on the beacon's brightness code, enforced by this driver
-# regardless of what a caller requests. This is a different physical LED than
-# the sphere source (MAX_SAFE_CODE=2100 there) — measured/rated limit for this
-# LED. Must stay >= 2100: the new LED driver hardware (both channels) requires
-# a DAC output of at least 2100 to reach its operating point.
-BEACON_MAX_SAFE_CODE = 3000
+# regardless of what a caller requests. Previously 3000 -- but on real
+# hardware the loop climbed past 3000 without settling at a 0.4 A target
+# (still only ~0.19 A at code=2956, still rising), meaning 2100 is this
+# driver's minimum output threshold, not close to its actual operating point,
+# and the old 3000 ceiling didn't leave enough headroom either. No new
+# measured/rated ceiling exists yet, so this now equals MAX_CODE (the DAC's
+# own 12-bit limit) and relies entirely on the PI loop's max_code_step rate
+# limiting, not a fixed ceiling, to avoid overdriving -- replace with a real
+# measured limit once one exists.
+BEACON_MAX_SAFE_CODE = MAX_CODE
 
 # Starting code for on()'s ramp the first time the PI loop engages (before any
 # prior flash has taught it a settled operating point). The new LED driver
 # hardware needs at least 2100 to produce any output at all, so ramping from a
 # cold 0 would leave the beacon dark for most of a short beacon_windows flash
-# while the PI loop's max_code_step-limited climb crawls up from zero. Later
-# flashes reuse the last settled code instead (see BeaconChannel._last_code).
+# while the PI loop's max_code_step-limited climb crawls up from zero. This is
+# only the floor, not the real operating point (see BEACON_MAX_SAFE_CODE) --
+# the PI loop still has to climb further from here. Later flashes reuse the
+# last settled code instead (see BeaconChannel._last_code).
 BEACON_STARTUP_CODE = 2100
 
 # AIN1's sense resistor for the beacon's drive current — a separate physical
