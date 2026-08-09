@@ -84,8 +84,8 @@ sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_l
 sphere_kp = 10000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
 sphere_ki = 1000.0    # confirmed stable in soak testing; drivers/sphere_led.py's own defaults (2000/400)
                       # were untested placeholders
-sphere_sense_resistor_ohm = 1.5   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
-beacon_sense_resistor_ohm = 1.5   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
+sphere_sense_resistor_ohm = 1.9   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
+beacon_sense_resistor_ohm = 1.9   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
 beacon_dac_code = 4095   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
                           # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the
                           # channel 3 relay (drivers/beacon_led.py). 4095 = MAX_CODE, full DAC output.
@@ -96,11 +96,11 @@ beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_w
 # period_s makes a window recur (default: one day, i.e. a single daily window).
 # Beacon flashes for 5s at :25 and :55 of every minute, whenever the sphere isn't on
 # (i.e. before the observation window starts and after this task is stopped at apogee).
-[[tasks.lighting.beacon_windows]]
-start_utc  = "00:00:25"
-duration_s = 5.0
-period_s   = 60.0
-label      = "beacon_25"
+#[[tasks.lighting.beacon_windows]]
+#start_utc  = "00:00:25"
+#duration_s = 5.0
+#period_s   = 60.0
+#label      = "beacon_25"
 
 [[tasks.lighting.beacon_windows]]
 start_utc  = "00:00:55"
