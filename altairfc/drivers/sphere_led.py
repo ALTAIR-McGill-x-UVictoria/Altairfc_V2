@@ -41,7 +41,7 @@ Usage:
     import smbus2
     bus = smbus2.SMBus(1)
     src = SphereLedSource(bus=bus)                      # owns its own LedBoard
-    src.set_code(1400)             # open loop, clamped to MAX_SAFE_CODE regardless
+    src.set_code(2100)             # open loop, clamped to MAX_SAFE_CODE regardless
     src.hold_current(0.35)         # engage the PI loop
     while ...:
         state = src.update()
@@ -76,8 +76,10 @@ DEFAULT_CHANNEL = HIGH_POWER_CHANNEL
 # Hard ceiling on the DAC code, enforced by this driver regardless of what a
 # caller requests (--code, hold_current's PI output, anything). This is a
 # safety limit, not a suggestion — do not raise it without confirming what it
-# is actually protecting against.
-MAX_SAFE_CODE = 1400
+# is actually protecting against. Raised from 1400 to 2100 for the new sphere
+# LED driver hardware, which requires a DAC output of at least 2100 to reach
+# its operating point.
+MAX_SAFE_CODE = 2100
 assert MAX_SAFE_CODE <= MAX_CODE, "MAX_SAFE_CODE must not exceed the DAC's own 12-bit range"
 
 
@@ -108,8 +110,6 @@ class SphereLedSource:
         use_ldac: bool = True,
         i2c_dev: str = "/dev/i2c-1",
         sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
-        oversample: int = 16,
-        filter_alpha: float = 0.08,
     ) -> None:
         if channel not in VALID_CHANNELS:
             raise ValueError(f"channel must be HIGH_POWER_CHANNEL ({HIGH_POWER_CHANNEL}), got {channel}")
@@ -120,16 +120,6 @@ class SphereLedSource:
         self._integral = 0.0
         self._loop_engaged = False
         self._last_update_t: float | None = None
-
-        # Oversampling + EMA filtering the current-loop's feedback: the RF
-        # transceiver couples a persistent, broadband disturbance onto the
-        # MOSFET gate drive that a single raw ADS1115 sample mostly passes
-        # straight through. Validated in tests/test_LED_system.py, whose
-        # closed-loop notes explain why both stages (not just a faster loop)
-        # are needed to actually reject it rather than chase noise.
-        self._oversample = oversample
-        self._filter_alpha = filter_alpha
-        self._filtered_current_a: float | None = None
 
         # PI gains, in DAC codes per amp.  Defaults are deliberately gentle;
         # tune them from the open-loop soak data before trusting a long run.
@@ -163,7 +153,6 @@ class SphereLedSource:
         self._target_current_a = None
         self._loop_engaged = False
         self._integral = 0.0
-        self._filtered_current_a = None
         self._board.all_off(self.channel)
 
     # -- feedback ----------------------------------------------------------
@@ -192,7 +181,6 @@ class SphereLedSource:
         self._target_current_a = float(target_a)
         self._integral = 0.0
         self._last_update_t = None
-        self._filtered_current_a = None
         if kp is not None:
             self._kp = kp
         if ki is not None:
@@ -210,31 +198,15 @@ class SphereLedSource:
         self._target_current_a = None
         self._loop_engaged = False
         self._integral = 0.0
-        self._filtered_current_a = None
 
     def update(self) -> LedState:
-        """Sample current and temperature; run one PI step if a target is set.
-
-        The current sample is always the oversampled/trimmed-mean read (see
-        Ads1115.read_current_a_oversampled) rather than a single raw
-        conversion, so open-loop logging (e.g. the soak script) benefits from
-        the same RF-noise rejection as the closed loop below.
-        """
-        current_a = self._board.ads.read_current_a_oversampled(
-            channel=self.channel,
-            sense_resistor_ohm=self._sense_resistor_ohm,
-            oversample=self._oversample,
-        )
+        """Sample current and temperature; run one PI step if a target is set."""
+        current_a = self.read_current_a()
         temperature_c = self.read_bridge_temperature_c()
 
         settled = True
         if self._loop_engaged and self._target_current_a is not None:
-            if self._filtered_current_a is None:
-                self._filtered_current_a = current_a
-            else:
-                self._filtered_current_a += self._filter_alpha * (current_a - self._filtered_current_a)
-
-            error = self._target_current_a - self._filtered_current_a
+            error = self._target_current_a - current_a
             settled = abs(error) <= self._deadband_a
             if not settled:
                 now = time.monotonic()
@@ -242,29 +214,10 @@ class SphereLedSource:
                 self._last_update_t = now
 
                 self._integral += error * dt
-                # Anti-windup: clamp the I-term itself to the same per-step
-                # authority as max_code_step (not just the final delta), and
-                # claw back the stored integral to match whenever that clamp
-                # bites. Without this, a long ramp (cold start, recovering
-                # from a big disturbance) keeps accumulating the *unclamped*
-                # error the whole time, so the integral term ends up
-                # demanding far more correction than the actuator could ever
-                # apply in one step and overshoots badly unwinding it
-                # afterward — see tests/test_LED_system.py's CurrentHoldLoop,
-                # where this was found and fixed.
-                i_term = self._ki * self._integral
-                i_term_clamped = max(-self._max_code_step, min(self._max_code_step, i_term))
-                if i_term_clamped != i_term and self._ki != 0:
-                    self._integral = i_term_clamped / self._ki
-
-                delta = self._kp * error + i_term_clamped
+                delta = self._kp * error + self._ki * self._integral
                 delta = max(-self._max_code_step, min(self._max_code_step, delta))
 
                 new_code = max(0, min(MAX_SAFE_CODE, int(round(self.code + delta))))
-                # Also stop accumulating once railed and the correction can't
-                # actually move the DAC any further this step.
-                if new_code == self.code and new_code in (0, MAX_SAFE_CODE):
-                    self._integral -= error * dt
                 self._board.write_channel(self.channel, new_code)
 
         return LedState(

@@ -68,14 +68,13 @@ period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
 
 [tasks.lighting]
 enabled  = true  # PLACEHOLDER — enable once flight-ready
-period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop below: at 5 Hz the loop can
-                   # only apply max_code_step of correction 5x/sec, ~4-6x less closed-loop bandwidth than
-                   # tests/test_LED_system.py's free-running loop (which is what was actually validated
-                   # stable), so it couldn't reject the RF-coupled gate disturbance fast enough between
-                   # updates. period_s this low just makes the task scheduler's deadline loop call execute()
-                   # back-to-back (it self-throttles gracefully on overrun, see core/task_base.py), so the
-                   # sphere loop ends up I2C-bound same as the test script, not artificially capped at 5 Hz.
-                   # Still tight enough for the 5s beacon flash duration below.
+period_s = 0.02   # was 0.2 (5 Hz) — too slow for the current-hold loops below: at 5 Hz a loop can only
+                   # apply max_code_step of correction 5x/sec, far less closed-loop bandwidth than
+                   # tests/test_LED_system.py's free-running loop. period_s this low just makes the task
+                   # scheduler's deadline loop call execute() back-to-back (it self-throttles gracefully
+                   # on overrun, see core/task_base.py), so each loop ends up I2C-bound same as the test
+                   # script, not artificially capped at 5 Hz. Still tight enough for the 5s beacon flash
+                   # duration below.
 i2c_dev  = "/dev/i2c-1"
 sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
                                     # Sphere turns on as soon as the lighting task starts (not gated on
@@ -83,12 +82,15 @@ sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_l
                                     # FlightStageTask stops the "lighting" task entirely at apogee
                                     # (burst/termination), and teardown() zeroes both LED channels.
 sphere_kp = 10000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
-sphere_ki = 1000.0    # confirmed stable against the RF disturbance; drivers/sphere_led.py's own defaults
-                      # (2000/400) were untested placeholders, not soak-validated
+sphere_ki = 1000.0    # confirmed stable in soak testing; drivers/sphere_led.py's own defaults (2000/400)
+                      # were untested placeholders
 sphere_sense_resistor_ohm = 1.5   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
 beacon_sense_resistor_ohm = 1.5   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
-beacon_dac_code = 4095   # PLACEHOLDER — beacon brightness setpoint, MCP4728 channel 1 (0-3000, clamped by
-                          # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the channel 3 relay
+beacon_target_current_a = 0.4   # A — PI current-hold target (drivers/beacon_led.py set_target_current()/
+                                 # update()), mirrors the sphere's loop. Engaged by on(), disengaged by off()
+                                 # each time beacon_windows below toggles the flash.
+beacon_kp = 2000.0    # PI current-loop gains for the beacon — same defaults as SphereLedSource; tune from
+beacon_ki = 400.0     # soak data before trusting a long run.
 beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_windows entry below —
                            # e.g. 2.0 = on 0.25s / off 0.25s, repeating
 
