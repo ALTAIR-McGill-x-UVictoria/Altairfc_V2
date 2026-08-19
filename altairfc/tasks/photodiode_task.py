@@ -95,7 +95,10 @@ class PhotodiodeTask(BaseTask):
         pdro = factory(readouts=readouts)
         try:
             for readout in readouts:
-                pdro.set_bias_voltage(readout, self._bias_voltage_v)
+                applied_bias_v = pdro.set_bias_voltage(readout, self._bias_voltage_v)
+                self.datastore.write(
+                    f"photodiode.{readout.value}.bias_voltage_v", applied_bias_v
+                )
                 pdro.set_signal_paths(readout, SignalPath.TIA_LOW_GAIN)
                 if (
                     pdro.configure_input(

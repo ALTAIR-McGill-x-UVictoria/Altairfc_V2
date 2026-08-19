@@ -24,6 +24,8 @@ class PhotodiodePacket:
         "soldier_photodiode_temperature": (
             "photodiode.soldier.photodiode_temperature"
         ),
+        "sergeant_bias_voltage_v": "photodiode.sergeant.bias_voltage_v",
+        "soldier_bias_voltage_v": "photodiode.soldier.bias_voltage_v",
     }
 
     sergeant_tia_low_gain: float = field(
@@ -53,4 +55,12 @@ class PhotodiodePacket:
         metadata=FieldMeta(
             "f", "Soldier photodiode temperature", "C"
         ).as_metadata(),
+    )
+    sergeant_bias_voltage_v: float = field(
+        default=0.0,
+        metadata=FieldMeta("f", "Sergeant photodiode bias", "V").as_metadata(),
+    )
+    soldier_bias_voltage_v: float = field(
+        default=0.0,
+        metadata=FieldMeta("f", "Soldier photodiode bias", "V").as_metadata(),
     )
