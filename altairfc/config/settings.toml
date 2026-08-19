@@ -76,7 +76,7 @@ period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop
                    # script, not artificially capped at 5 Hz. Still tight enough for the 5s beacon flash
                    # duration below.
 i2c_dev  = "/dev/i2c-1"
-sphere_target_current_a = 0.4   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
+sphere_target_current_a = 0.28   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
                                     # Sphere turns on as soon as the lighting task starts (not gated on
                                     # event.ascent_active) and never turns off internally afterward —
                                     # FlightStageTask stops the "lighting" task entirely at apogee
