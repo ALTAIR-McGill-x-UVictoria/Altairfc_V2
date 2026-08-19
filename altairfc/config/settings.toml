@@ -39,7 +39,7 @@ temperature_data_rate = "SPS_2000"
 temperature_period_s = 1.0
 batch_size = 50
 batch_tx_rate_hz = 2.0
-bias_voltage_v = 0.0   # safe default; set the required flight bias before enabling
+bias_voltage_v = 3.0   # applied to both sergeant and soldier readouts
 
 [tasks.power]
 enabled = true
