@@ -18,7 +18,7 @@ class HeartbeatPacket:
     is alive and to carry basic system health metrics.
 
     Packet ID: 0x00
-    Payload size: 2 * 8 + 10 * 4 = 56 bytes
+    Payload size: 2 * 8 (float64) + 9 * 4 (float32) + 32 (log_dir) = 84 bytes
 
     Fields:
         time_unix            — wall-clock UNIX timestamp (float64, s)
@@ -31,6 +31,7 @@ class HeartbeatPacket:
         power_connected      — 1.0 if power daughterboard is active, 0.0 otherwise (float32, bool)
         photodiode_connected — 1.0 if photodiode daughterboard is active, 0.0 otherwise (float32, bool)
         pps_rms_us           — PPS RMS offset from chrony tracking (float32, µs); 0.0 if unavailable
+        log_dir              — active log session directory name (32-byte UTF-8, null-padded)
 
     DataStore keys (written by TelemetryTask before packet iteration):
         "system.time_unix"
@@ -43,6 +44,8 @@ class HeartbeatPacket:
         "system.power_connected"
         "system.photodiode_connected"
         "system.pps_rms_us"
+        "system.log_dir"    — written once by main.py at session start (and again if
+                               the GPS clock-resync rename fires; see main.py)
     """
 
     TX_RATE_HZ: ClassVar[float] = 4.0
@@ -59,6 +62,7 @@ class HeartbeatPacket:
         "photodiode_connected": "system.photodiode_connected",
         "pps_synced":           "system.pps_synced",
         "pps_rms_us":           "system.pps_rms_us",
+        "log_dir":              "system.log_dir",
     }
 
     time_unix:            float = field(default=0.0, metadata=FieldMeta("d", "UNIX wall-clock time",       "s").as_metadata())
@@ -72,6 +76,7 @@ class HeartbeatPacket:
     photodiode_connected: float = field(default=0.0, metadata=FieldMeta("f", "Photodiode board link",     "bool").as_metadata())
     pps_synced:           float = field(default=0.0, metadata=FieldMeta("f", "PPS time sync",             "bool").as_metadata())
     pps_rms_us:           float = field(default=0.0, metadata=FieldMeta("f", "PPS RMS offset",            "us").as_metadata())
+    log_dir:              str   = field(default="",  metadata=FieldMeta("32s", "Log session directory",   "").as_metadata())
 
 
 # ---------------------------------------------------------------------------

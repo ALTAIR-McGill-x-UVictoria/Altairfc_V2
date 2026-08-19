@@ -162,8 +162,13 @@ class TelemetryTask(BaseTask):
             field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
             kwargs: dict[str, object] = {}
             for field_name, ds_key in pkt_class.DATASTORE_KEYS.items():
-                raw = self.datastore.read(ds_key, default=0)
-                kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
+                field_type = field_types.get(field_name)
+                if field_type == "str":
+                    kwargs[field_name] = str(self.datastore.read(ds_key, default=""))
+                elif field_type == "int":
+                    kwargs[field_name] = int(self.datastore.read(ds_key, default=0))
+                else:
+                    kwargs[field_name] = float(self.datastore.read(ds_key, default=0))
 
             try:
                 packet = pkt_class(**kwargs)

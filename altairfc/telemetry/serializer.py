@@ -3,6 +3,7 @@ from __future__ import annotations
 import binascii
 import dataclasses
 import logging
+import re
 import struct
 import time
 
@@ -19,6 +20,26 @@ _CRC_STRUCT = struct.Struct("<H")
 HEADER_SIZE = _HEADER_STRUCT.size   # 13
 CRC_SIZE = _CRC_STRUCT.size         # 2
 MIN_FRAME_SIZE = HEADER_SIZE + CRC_SIZE
+
+# Fixed-length string fields use a struct_char like "32s" (32-byte blob).
+# Distinguishes them from numeric fields so pack/unpack can convert to/from
+# Python str instead of passing values straight to struct.pack/unpack.
+_STR_FIELD_RE = re.compile(r"^(\d+)s$")
+
+
+def _pack_field(value: object, struct_char: str | None) -> object:
+    if struct_char is not None:
+        m = _STR_FIELD_RE.match(struct_char)
+        if m:
+            length = int(m.group(1))
+            return str(value).encode("utf-8")[:length].ljust(length, b"\x00")
+    return value
+
+
+def _unpack_field(value: object, struct_char: str | None) -> object:
+    if struct_char is not None and _STR_FIELD_RE.match(struct_char) and isinstance(value, bytes):
+        return value.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+    return value
 
 
 class PacketSerializer:
@@ -49,7 +70,13 @@ class PacketSerializer:
             if packet_id is None or pkt_struct is None:
                 raise ValueError(f"Packet type {pkt_type.__name__} is not registered")
 
-            field_values = [getattr(packet, f.name) for f in dataclasses.fields(packet)]
+            field_values = [
+                _pack_field(
+                    getattr(packet, f.name),
+                    f.metadata["field_meta"].struct_char if "field_meta" in f.metadata else None,
+                )
+                for f in dataclasses.fields(packet)
+            ]
             payload = pkt_struct.pack(*field_values)
 
         timestamp = time.time()
@@ -116,5 +143,11 @@ class PacketSerializer:
 
         values = pkt_struct.unpack(payload)
         fields = dataclasses.fields(pkt_class)
-        packet = pkt_class(**{f.name: v for f, v in zip(fields, values)})
+        kwargs = {
+            f.name: _unpack_field(
+                v, f.metadata["field_meta"].struct_char if "field_meta" in f.metadata else None
+            )
+            for f, v in zip(fields, values)
+        }
+        packet = pkt_class(**kwargs)
         return packet, timestamp

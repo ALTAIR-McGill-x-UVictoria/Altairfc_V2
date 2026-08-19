@@ -110,7 +110,30 @@ def main() -> None:
         session_dir = None
         setup_logging(config.log_level)
 
+    def _resync_log_session(gps_dt) -> None:
+        # The Pi has no RTC and no network in flight, so session_dir above was
+        # named from a stale system clock (whatever it was at boot). Called
+        # once by GpsTask the first time GPS gives us real UTC time — rename
+        # the directory to match. Safe to do while flight.log/CSV files are
+        # open: renaming a directory doesn't affect already-open file
+        # descriptors inside it on Linux.
+        nonlocal session_dir
+        if session_dir is None:
+            return
+        new_dir = session_dir.parent / gps_dt.strftime("%Y-%m-%d_%H-%M-%SZ")
+        if new_dir == session_dir:
+            return
+        try:
+            session_dir.rename(new_dir)
+        except OSError as exc:
+            logger.warning("Failed to rename log session %s -> %s: %s", session_dir, new_dir, exc)
+            return
+        logger.info("Log session renamed after GPS time sync: %s -> %s", session_dir, new_dir)
+        session_dir = new_dir
+        datastore.write("system.log_dir", session_dir.name)
+
     datastore = DataStore()
+    datastore.write("system.log_dir", session_dir.name if session_dir is not None else "")
     photodiode_sample_buffer = (
         PhotodiodeSampleBuffer() if config.telemetry is not None else None
     )
@@ -161,6 +184,7 @@ def main() -> None:
             name="gps",
             period_s=config.tasks["gps"].period_s,
             datastore=datastore,
+            on_time_sync=_resync_log_session,
         )
     )
 
