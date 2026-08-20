@@ -75,6 +75,18 @@ class TeeServer:
                 sock, addr = self._server_sock.accept()
             except OSError:
                 break
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            # Detect a GS peer that vanished without a FIN/RST in a few seconds
+            # instead of relying on OS defaults (~2h), so a stale client is
+            # cleaned up promptly rather than piling up dead send threads.
+            for opt, val in (
+                (getattr(socket, "TCP_KEEPIDLE", None), 3),
+                (getattr(socket, "TCP_KEEPINTVL", None), 2),
+                (getattr(socket, "TCP_KEEPCNT", None), 3),
+            ):
+                if opt is not None:
+                    sock.setsockopt(socket.IPPROTO_TCP, opt, val)
             client_queue: "queue.Queue[bytes]" = queue.Queue(maxsize=self._queue_maxsize)
             with self._lock:
                 self._clients[sock] = client_queue
