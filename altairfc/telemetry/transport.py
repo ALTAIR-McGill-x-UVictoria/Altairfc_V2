@@ -91,9 +91,10 @@ class SerialTransport:
 
         self._assembler = FrameAssembler(self._on_lr_frame)
 
-        self._writer_thread:    threading.Thread | None = None
-        self._reader_thread:    threading.Thread | None = None
-        self._heartbeat_thread: threading.Thread | None = None
+        self._writer_thread:     threading.Thread | None = None
+        self._reader_thread:     threading.Thread | None = None
+        self._heartbeat_thread:  threading.Thread | None = None
+        self._port_retry_thread: threading.Thread | None = None
         self._running    = False
         self._open_event = threading.Event()
 
@@ -109,7 +110,24 @@ class SerialTransport:
         return self._open_event.wait(timeout=timeout)
 
     def open(self) -> None:
-        self._serial  = serial.Serial(self.port, self.baud, timeout=0.05)
+        """
+        Start the transport. Never raises: if the configured serial port
+        doesn't exist or can't be opened (no radio physically wired — a
+        legitimate deployment now that a TeeServer/tunnel can carry telemetry
+        and commands on its own, see tee_server.py), self._serial stays None
+        and all three threads still start in "radio absent" mode — the
+        writer still drains queues and feeds the tee, it just skips the
+        actual serial write; the reader idles instead of polling a
+        nonexistent port. _port_retry_loop (started alongside the other
+        three) periodically retries opening the real port in the
+        background, so plugging the radio in later picks it up without a
+        restart. Previously this raised on a missing port, which left
+        TelemetryTask stuck retrying setup() forever via BaseTask's restart
+        backoff — silently killing telemetry over the tunnel too, since
+        execute() (and therefore the tee-broadcast path) never got to run
+        without a successful setup().
+        """
+        self._try_open_serial()
         self._start_t = time.monotonic()
         self._running = True
         self._linked  = False
@@ -120,12 +138,59 @@ class SerialTransport:
             target=self._reader_loop, name="transport-reader", daemon=True)
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop, name="transport-heartbeat", daemon=True)
+        self._port_retry_thread = threading.Thread(
+            target=self._port_retry_loop, name="transport-port-retry", daemon=True)
 
         self._writer_thread.start()
         self._reader_thread.start()
         self._heartbeat_thread.start()
+        self._port_retry_thread.start()
         self._open_event.set()
-        logger.info("SerialTransport: opened %s @ %d baud", self.port, self.baud)
+        if self._serial is not None:
+            logger.info("SerialTransport: opened %s @ %d baud", self.port, self.baud)
+        else:
+            logger.warning(
+                "SerialTransport: %s not available — running radio-absent "
+                "(tunnel-only if configured); retrying in background",
+                self.port,
+            )
+
+    def _try_open_serial(self) -> bool:
+        """
+        Attempt to open self.port. Returns success; never raises. Catches
+        Exception broadly (not just serial.SerialException) — same
+        precedent as _handle_disconnect's own reconnect loop below — since
+        this is startup/background-retry code where any failure to open
+        must degrade to "radio absent" rather than propagate and take down
+        the calling thread (open() itself, or _port_retry_loop).
+        """
+        try:
+            self._serial = serial.Serial(self.port, self.baud, timeout=0.05)
+            return True
+        except Exception as e:
+            logger.warning("SerialTransport: failed to open %s: %s", self.port, e)
+            self._serial = None
+            return False
+
+    def _port_retry_loop(self) -> None:
+        """
+        While self._serial is None (radio never opened, or _handle_disconnect
+        gave up — it doesn't; see below), periodically retry opening the
+        real port so a radio plugged in after startup is picked up without a
+        restart. No-ops once _serial is set. Uses the same backoff shape as
+        _handle_disconnect's reconnect loop.
+        """
+        delay = 1.0
+        while self._running:
+            if self._serial is None:
+                if self._try_open_serial():
+                    self._linked = False   # unknown until the next heartbeat response
+                    logger.info("SerialTransport: %s became available, opened", self.port)
+                else:
+                    time.sleep(delay)
+                    delay = min(delay * 2, 30.0)
+                    continue
+            time.sleep(delay)
 
     def close(self) -> None:
         self._running = False
@@ -333,6 +398,17 @@ class SerialTransport:
             if wait > 0:
                 time.sleep(wait)
 
+            # No physical radio open (never connected, or a mid-session
+            # disconnect _port_retry_loop hasn't recovered from yet) — still
+            # feed the tee so tunnel-only operation keeps working, just skip
+            # the serial write there's no port to receive it. self._secs_per_byte
+            # pacing is radio-specific and meaningless here, so it's skipped
+            # too — the tee has no such rate limit to respect.
+            if self._serial is None:
+                if self._tee is not None:
+                    self._tee.broadcast(item)
+                continue
+
             try:
                 self._serial.write(item)
                 if self._tee is not None:
@@ -351,8 +427,14 @@ class SerialTransport:
             self._hb_gate.wait()
             now = time.monotonic()
             if now >= next_tick:
-                self._priority_queue.put(
-                    build_heartbeat(self._next_lr_seq(), self._pc_uptime_ms(), link_flag=0x00))
+                # LR900P keepalive — pointless with no physical modem to keep
+                # alive, and _writer_loop would otherwise still tee.broadcast()
+                # these out over the tunnel for nothing (harmless — GS-side
+                # TunnelReader's 0xAA sync scan just skips 0xEF-prefixed
+                # bytes as noise — but wasted bandwidth).
+                if self._serial is not None:
+                    self._priority_queue.put(
+                        build_heartbeat(self._next_lr_seq(), self._pc_uptime_ms(), link_flag=0x00))
                 next_tick += HEARTBEAT_INTERVAL
             time.sleep(0.01)
 
@@ -381,6 +463,14 @@ class SerialTransport:
 
     def _reader_loop(self) -> None:
         while self._running:
+            if self._serial is None:
+                # No physical radio open — nothing to poll. _port_retry_loop
+                # owns retrying the actual open(); this just idles rather than
+                # spinning on self._serial.read() raising AttributeError.
+                # Inbound command bytes still arrive via feed_command_bytes()
+                # from the tee's recv side regardless of this loop's state.
+                time.sleep(0.5)
+                continue
             try:
                 data = self._serial.read(256)
             except serial.SerialException as e:

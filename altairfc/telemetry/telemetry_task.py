@@ -80,7 +80,11 @@ class TelemetryTask(BaseTask):
         )
         self._stats_thread.start()
         self._next_photodiode_batch_t = time.monotonic()
-        logger.info("TelemetryTask: transport opened")
+        # transport.open() itself logs whether the physical radio actually
+        # opened or is running radio-absent (tunnel-only) — see its own
+        # docstring. This just confirms setup() completed either way; it no
+        # longer implies the serial port specifically opened.
+        logger.info("TelemetryTask: setup complete")
 
     def _send_photodiode_batch(self, now: float) -> None:
         if self._photodiode_samples is None:
