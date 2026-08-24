@@ -222,6 +222,50 @@ def test_apply_latches_sphere_on_even_after_observation_goes_inactive():
     assert pair.sphere_code != 0
 
 
+def test_poll_target_current_update_reengages_hold_current_on_change():
+    """A live settings.sphere_target_current_a change (e.g. from the GS calibration tab's
+    UpdateSetting command) re-engages hold_current() at the new target on the next _apply()."""
+    task, pair = _make_task(sphere_target_current_a=0.2657)
+
+    task._apply(True, None, 0.0)  # sphere latches on at 0.2657 A
+    assert task._sphere.target_current_a == pytest.approx(0.2657)
+
+    task.datastore.write("settings.sphere_target_current_a", 0.35)
+    task._apply(True, None, 0.0)  # second call takes the poll path, not the latch path
+
+    assert task._sphere.target_current_a == pytest.approx(0.35)
+    assert task._sphere_target_current_a == pytest.approx(0.35)
+
+
+def test_poll_target_current_update_zero_target_drives_dac_off_directly():
+    """A target of exactly 0 A calls all_off() (immediate code=0, loop disengaged) rather than
+    hold_current(0.0), which would otherwise spend several update() cycles servoing down."""
+    task, pair = _make_task(sphere_target_current_a=0.2657)
+
+    task._apply(True, None, 0.0)  # sphere latches on at 0.2657 A
+    assert pair.sphere_code != 0
+
+    task.datastore.write("settings.sphere_target_current_a", 0.0)
+    task._apply(True, None, 0.0)  # poll path sees the change, calls all_off()
+
+    assert task._sphere.target_current_a is None
+    assert pair.sphere_code == 0
+    assert task._sphere_target_current_a == 0.0
+
+
+def test_poll_target_current_update_no_change_is_a_no_op():
+    """Repeated _apply() calls with no datastore write in between must not re-call
+    hold_current() every tick — only an actual change should re-engage the loop."""
+    task, pair = _make_task(sphere_target_current_a=0.2657)
+
+    task._apply(True, None, 0.0)
+    task._sphere.target_current_a = 999.0  # sentinel: would prove hold_current() got called again
+
+    task._apply(True, None, 0.0)
+
+    assert task._sphere.target_current_a == 999.0  # untouched — no re-engage happened
+
+
 def test_apply_beacon_strobes_during_window_even_while_sphere_is_on():
     """No interlock: the beacon flashes on its schedule regardless of the sphere's state. Safe
     by construction because beacon_windows are defined as the non-observation windows — see

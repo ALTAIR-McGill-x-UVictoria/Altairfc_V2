@@ -330,6 +330,14 @@ class LightingTask(BaseTask):
         sphere_target_current_a argument seeded at startup, so a GS command
         transparently overrides the settings.toml default for the rest of
         this task's run (until the next command or task restart).
+
+        A target of exactly 0 A drives the DAC to code 0 directly
+        (SphereLedSource.all_off()) instead of engaging the PI loop toward
+        zero — hold_current(0.0) would otherwise spend several update()
+        cycles servoing the code down from wherever it currently sits, which
+        is pointless when the intent is simply "off now". all_off() also
+        disengages the loop, so subsequent update() calls just report sensor
+        readback without fighting to re-converge on 0.
         """
         new_target = self.datastore.read(
             "settings.sphere_target_current_a", default=self._sphere_target_current_a
@@ -337,13 +345,17 @@ class LightingTask(BaseTask):
         if new_target is None or new_target == self._sphere_target_current_a:
             return
         self._sphere_target_current_a = float(new_target)
-        self._sphere.hold_current(
-            self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
-        )
-        logger.info(
-            "LightingTask: sphere target current updated to %.4f A via ground command",
-            self._sphere_target_current_a,
-        )
+        if self._sphere_target_current_a == 0.0:
+            self._sphere.all_off()
+            logger.info("LightingTask: sphere target current set to 0 A — DAC driven to 0 directly")
+        else:
+            self._sphere.hold_current(
+                self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
+            )
+            logger.info(
+                "LightingTask: sphere target current updated to %.4f A via ground command",
+                self._sphere_target_current_a,
+            )
 
     def _log_loop_stats(
         self, channel: str, target_current_a: float | None, current_a: float, settled: bool, code: int
