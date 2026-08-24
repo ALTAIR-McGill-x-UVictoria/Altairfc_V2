@@ -86,7 +86,7 @@ sphere_ki = 1000.0    # confirmed stable in soak testing; drivers/sphere_led.py'
                       # were untested placeholders
 sphere_sense_resistor_ohm = 1.9   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
 beacon_sense_resistor_ohm = 1.9   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
-beacon_dac_code = 4095   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
+beacon_dac_code = 0   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
                           # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the
                           # channel 3 relay (drivers/beacon_led.py). 4095 = MAX_CODE, full DAC output.
 beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_windows entry below —
