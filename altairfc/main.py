@@ -71,6 +71,7 @@ from tasks.power_task import PowerTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
 from telemetry.tee_server import TeeServer
+from drivers.port_detect import find_lr900p_port
 from tasks.pitch_task import PitchTask
 from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
@@ -214,6 +215,11 @@ def main() -> None:
         telemetry_transport = SerialTransport(
             port=config.telemetry.port,
             baud=config.telemetry.baud,
+            # Only when the operator asked for auto-detection — an explicit
+            # fixed path is retried as exactly that path, never silently
+            # swapped for whatever other CP210x device shows up later. See
+            # SerialPortConfig.is_auto and SerialTransport's port_resolver.
+            port_resolver=find_lr900p_port if config.telemetry.is_auto else None,
         )
 
         if config.telemetry_tee.enabled:

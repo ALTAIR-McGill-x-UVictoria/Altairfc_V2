@@ -4,6 +4,7 @@ import logging
 import queue
 import threading
 import time
+from typing import Callable
 
 import serial
 
@@ -56,9 +57,18 @@ class SerialTransport:
     """
 
     def __init__(self, port: str, baud: int, write_queue_maxsize: int = 64,
-                 tee: TeeServer | None = None) -> None:
+                 tee: TeeServer | None = None,
+                 port_resolver: "Callable[[], str | None] | None" = None) -> None:
         self.port = port
         self.baud = baud
+        # Optional re-resolver for a port that wasn't known at construction
+        # (e.g. config/settings.py's "auto" mode found no CP210x device at
+        # startup, so self.port is an intentionally-unopenable placeholder —
+        # see _resolve_serial_port's docstring). When set, _try_open_serial
+        # calls this first and updates self.port on success, instead of
+        # retrying the same fixed placeholder string forever. Returns None
+        # (or self.port is left unchanged) when still not found.
+        self._port_resolver = port_resolver
         self._secs_per_byte = _BITS_PER_BYTE / baud
         # Optional mirror of every byte written to the radio, out over TCP —
         # lets a ground station reach us over the network (e.g. ZeroTier)
@@ -157,13 +167,24 @@ class SerialTransport:
 
     def _try_open_serial(self) -> bool:
         """
-        Attempt to open self.port. Returns success; never raises. Catches
-        Exception broadly (not just serial.SerialException) — same
+        Attempt to open a serial port. Returns success; never raises.
+        Catches Exception broadly (not just serial.SerialException) — same
         precedent as _handle_disconnect's own reconnect loop below — since
         this is startup/background-retry code where any failure to open
         must degrade to "radio absent" rather than propagate and take down
         the calling thread (open() itself, or _port_retry_loop).
+
+        If a port_resolver was given, it's tried first and self.port is
+        updated on success — this is what lets a device plugged in after
+        startup (self.port started as an unopenable "auto-detect-pending"
+        placeholder — see config/settings.py's _resolve_serial_port) actually
+        get found, instead of _port_retry_loop retrying the same fixed
+        placeholder string forever.
         """
+        if self._port_resolver is not None:
+            resolved = self._port_resolver()
+            if resolved is not None:
+                self.port = resolved
         try:
             self._serial = serial.Serial(self.port, self.baud, timeout=0.05)
             return True

@@ -17,21 +17,43 @@ logger = logging.getLogger(__name__)
 def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig | None":
     """
     Build a SerialPortConfig, resolving port="auto" by scanning for a CP210x device.
-    Returns None when port="none" or when auto-detect finds no device (logs a warning).
+
+    Returns None only when port="none" — the operator explicitly disabling
+    the telemetry radio entirely (this also disables TelemetryTask,
+    CommandReceiverTask, RadioConfigTask, AND the TeeServer tunnel — see
+    main.py's `if config.telemetry is not None:` block).
+
+    port="auto" finding no CP210x device does NOT return None — it still
+    returns a SerialPortConfig, just with an obviously-unopenable
+    placeholder port. This matters because a ground station reachable only
+    over the ZeroTier tunnel (no radio physically wired at all) is a
+    legitimate deployment now that SerialTransport.open() tolerates a
+    missing port and TeeServer/tunnel operation doesn't otherwise depend on
+    the radio (see transport.py's "radio absent" mode) — returning None
+    here used to take the entire telemetry block down with it, including
+    the tunnel, which has nothing to do with whether a CP210x happens to be
+    plugged in at this exact moment. SerialTransport's own background
+    _port_retry_loop keeps retrying the real device path, so a radio
+    plugged in later is picked up without a restart regardless of which
+    branch resolved it at startup.
     """
     port = cfg.get("port", "")
     if port.lower() == "none":
         return None
-    if port.lower() == "auto":
+    is_auto = port.lower() == "auto"
+    if is_auto:
         detected = find_lr900p_port()
         if detected is None:
             logger.warning(
-                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected — "
-                "telemetry radio disabled. Set port explicitly in config/settings.toml to suppress this."
+                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected "
+                "yet — telemetry radio absent for now (SerialTransport will keep retrying "
+                "in the background). Telemetry/commands still flow normally over the tunnel "
+                "if telemetry_tee.enabled=true. Set port explicitly to suppress this warning."
             )
-            return None
-        port = detected
-    return SerialPortConfig(port=port, baud=cfg["baud"])
+            port = "auto-detect-pending (no CP210x found at startup)"
+        else:
+            port = detected
+    return SerialPortConfig(port=port, baud=cfg["baud"], is_auto=is_auto)
 
 @dataclass
 class ControllerConfig:
@@ -60,6 +82,13 @@ def _build_controller_config(cfg: dict[str, Any]) -> ControllerConfig:
 class SerialPortConfig:
     port: str
     baud: int
+    # True when port="auto" was configured — regardless of whether a device
+    # was actually found at startup. Lets main.py pass find_lr900p_port as
+    # SerialTransport's port_resolver only when the operator actually asked
+    # for auto-detection; an explicit fixed path (e.g. "/dev/ttyUSB0") means
+    # only that exact path should ever be retried, not whatever CP210x
+    # happens to be plugged in later.
+    is_auto: bool = False
 
 
 @dataclass
