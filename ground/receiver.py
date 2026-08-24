@@ -388,6 +388,9 @@ SETTING_KEYS: tuple[str, ...] = (
     "mm_kp",                         # 13
     "mm_kd",                         # 14
     "mm_max_current",                # 15
+    "pointing_activate_altitude_m",  # 16
+    "pointing_duration_min",         # 17
+    "sphere_target_current_a",       # 18
 )
 
 _UPDATE_SETTING_CMD_ID = 0xC3

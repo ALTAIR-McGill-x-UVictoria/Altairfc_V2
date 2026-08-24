@@ -293,6 +293,8 @@ class LightingTask(BaseTask):
                 "internally; stopped externally at apogee",
                 self._sphere_target_current_a,
             )
+        elif self._sphere_on:
+            self._poll_target_current_update()
 
         sphere_state = None
         if self._sphere_on:
@@ -313,6 +315,35 @@ class LightingTask(BaseTask):
         self._set_beacon(beacon_should_flash_on)
 
         return sphere_state
+
+    def _poll_target_current_update(self) -> None:
+        """
+        Re-engage hold_current() if settings.sphere_target_current_a has been
+        changed at runtime — e.g. via UpdateSettingCommandPacket field_id 18
+        from the GS calibration tab (see telemetry/commands/update_setting.py
+        SETTING_KEYS). CommandReceiverTask writes straight to this DataStore
+        key; nothing else in the flight code path does, so a plain read here
+        is enough to notice a ground-commanded brightness change without any
+        extra plumbing between the two tasks.
+
+        Reads the same settings.sphere_target_current_a key the constructor's
+        sphere_target_current_a argument seeded at startup, so a GS command
+        transparently overrides the settings.toml default for the rest of
+        this task's run (until the next command or task restart).
+        """
+        new_target = self.datastore.read(
+            "settings.sphere_target_current_a", default=self._sphere_target_current_a
+        )
+        if new_target is None or new_target == self._sphere_target_current_a:
+            return
+        self._sphere_target_current_a = float(new_target)
+        self._sphere.hold_current(
+            self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
+        )
+        logger.info(
+            "LightingTask: sphere target current updated to %.4f A via ground command",
+            self._sphere_target_current_a,
+        )
 
     def _log_loop_stats(
         self, channel: str, target_current_a: float | None, current_a: float, settled: bool, code: int
