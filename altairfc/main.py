@@ -211,18 +211,24 @@ def main() -> None:
 
     telemetry_tee_server: TeeServer | None = None
     if config.telemetry is not None:
-        if config.telemetry_tee.enabled:
-            telemetry_tee_server = TeeServer(
-                host=config.telemetry_tee.host,
-                port=config.telemetry_tee.port,
-            )
-            telemetry_tee_server.start()
-
         telemetry_transport = SerialTransport(
             port=config.telemetry.port,
             baud=config.telemetry.baud,
-            tee=telemetry_tee_server,
         )
+
+        if config.telemetry_tee.enabled:
+            # on_recv wires GS->FC command bytes arriving over the tunnel
+            # straight into the same buffer CommandReceiverTask already
+            # drains for serial commands (see SerialTransport.feed_command_bytes)
+            # — the only surviving GS->FC path now that the radio link
+            # itself is RF-unidirectional (FC->GS only).
+            telemetry_tee_server = TeeServer(
+                host=config.telemetry_tee.host,
+                port=config.telemetry_tee.port,
+                on_recv=telemetry_transport.feed_command_bytes,
+            )
+            telemetry_tee_server.start()
+            telemetry_transport.attach_tee(telemetry_tee_server)
         scheduler.register(
             TelemetryTask(
                 name="telemetry",

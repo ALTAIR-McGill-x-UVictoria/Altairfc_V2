@@ -4,26 +4,38 @@ import logging
 import queue
 import socket
 import threading
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class TeeServer:
     """
-    Best-effort TCP fan-out of the exact bytes SerialTransport writes to the
-    LR900P radio. Lets a ground station reach the flight computer over a
-    network path (e.g. a ZeroTier tunnel) and see the same byte stream the
-    radio carries, for use when RF is unavailable but the Pi has internet.
+    Bidirectional TCP tee for the LR900P telemetry link. Lets a ground
+    station reach the flight computer over a network path (e.g. a ZeroTier
+    tunnel) when RF is unavailable but the Pi has internet.
 
-    Never allowed to block or slow down the radio writer thread: each client
-    gets its own bounded queue and its own send thread, so a stalled or slow
-    network client only drops its own old bytes, never blocks broadcast().
+    Outbound (FC -> GS): best-effort fan-out of the exact bytes
+    SerialTransport writes to the radio — see broadcast(). Never allowed to
+    block or slow down the radio writer thread: each client gets its own
+    bounded queue and its own send thread, so a stalled or slow network
+    client only drops its own old bytes, never blocks broadcast().
+
+    Inbound (GS -> FC): now that the radio link itself is unidirectional
+    (RF hardware/config only carries FC->GS), this is the only surviving
+    path for GS->FC command frames. Each client also gets a recv thread that
+    forwards whatever bytes it reads to on_recv, unchanged and unparsed —
+    the same command-frame parser that already reads serial bytes
+    (CommandReceiverTask, via SerialTransport._cmd_buf) is what interprets
+    them; this class only moves bytes.
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 5760, queue_maxsize: int = 256) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 5760, queue_maxsize: int = 256,
+                 on_recv: Callable[[bytes], None] | None = None) -> None:
         self.host = host
         self.port = port
         self._queue_maxsize = queue_maxsize
+        self._on_recv = on_recv
         self._clients: dict[socket.socket, "queue.Queue[bytes]"] = {}
         self._lock = threading.Lock()
         self._running = False
@@ -92,21 +104,54 @@ class TeeServer:
                 self._clients[sock] = client_queue
             logger.info("TeeServer: client connected from %s", addr)
             threading.Thread(
-                target=self._client_loop, args=(sock, client_queue, addr),
-                name=f"tee-client-{addr[0]}:{addr[1]}", daemon=True,
+                target=self._client_send_loop, args=(sock, client_queue, addr),
+                name=f"tee-client-send-{addr[0]}:{addr[1]}", daemon=True,
+            ).start()
+            threading.Thread(
+                target=self._client_recv_loop, args=(sock, addr),
+                name=f"tee-client-recv-{addr[0]}:{addr[1]}", daemon=True,
             ).start()
 
-    def _client_loop(self, sock: socket.socket, client_queue: "queue.Queue[bytes]", addr) -> None:
+    def _client_send_loop(self, sock: socket.socket, client_queue: "queue.Queue[bytes]", addr) -> None:
         try:
             while self._running:
                 data = client_queue.get()
                 sock.sendall(data)
         except OSError as e:
-            logger.info("TeeServer: client %s disconnected (%s)", addr, e)
+            logger.info("TeeServer: client %s send side closed (%s)", addr, e)
         finally:
             with self._lock:
                 self._clients.pop(sock, None)
             try:
-                sock.close()
+                sock.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+    def _client_recv_loop(self, sock: socket.socket, addr) -> None:
+        """
+        Forward inbound command bytes to on_recv, unparsed. Runs independently
+        of the send loop/queue above (a single socket used for both
+        directions) so a GS command can arrive at any time regardless of
+        outbound telemetry traffic. Exits once the peer closes its write side
+        or the connection errors, shutting down only this socket's read
+        half — the send loop owns the actual close()/self._clients removal,
+        since a half-closed read side shouldn't stop outbound telemetry to a
+        client that's still receiving.
+        """
+        try:
+            while self._running:
+                data = sock.recv(4096)
+                if not data:
+                    return   # peer closed its write side
+                if self._on_recv is not None:
+                    try:
+                        self._on_recv(data)
+                    except Exception:
+                        logger.exception("TeeServer: on_recv callback failed for %s", addr)
+        except OSError as e:
+            logger.info("TeeServer: client %s recv side closed (%s)", addr, e)
+        finally:
+            try:
+                sock.shutdown(socket.SHUT_RD)
             except OSError:
                 pass

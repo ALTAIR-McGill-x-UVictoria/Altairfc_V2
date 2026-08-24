@@ -177,6 +177,31 @@ class SerialTransport:
             self._cmd_buf.clear()
         return data
 
+    def attach_tee(self, tee: TeeServer) -> None:
+        """
+        Attach a TeeServer after construction. Split from __init__'s tee
+        parameter because building the tee now requires a callback bound to
+        this transport (TeeServer(on_recv=transport.feed_command_bytes)) —
+        see altairfc/main.py's startup sequence — so the transport must
+        exist first.
+        """
+        self._tee = tee
+
+    def feed_command_bytes(self, data: bytes) -> None:
+        """
+        Inject bytes from a non-radio command source (currently: TeeServer's
+        recv side, since the radio link is RF-unidirectional and can no
+        longer carry GS->FC bytes at all) into the same buffer
+        CommandReceiverTask drains via read_available(). Bytes from the
+        tunnel and the radio (were it bidirectional) are indistinguishable
+        once in _cmd_buf — the frame parser in CommandReceiverTask._process_buffer
+        re-syncs on the 0xAA sync byte regardless of source, same as it
+        already tolerates telemetry echo interleaved with real commands on a
+        half-duplex radio.
+        """
+        with self._cmd_buf_lock:
+            self._cmd_buf.extend(data)
+
     # ------------------------------------------------------------------
     # LR900P config API
     # ------------------------------------------------------------------
