@@ -6,10 +6,11 @@ from enum import Enum
 import numpy as np
 from collections import deque
 from config.settings import ControllerConfig, GroundStationConfig, PointingConfig, SerialPortConfig
-from controls.controller import GainScheduledController
+from controls.controller import Controller, GainScheduledController
 from controls.error_computation import compute_error
 from core.datastore import DataStore
 from core.task_base import BaseTask
+from drivers.mm_driver import MMDriver
 from drivers.rw_driver import RWDriver
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class PointingState(Enum):
     IDLE = "idle" # Momentum management blocks bearing from free spinning
     SPINUP = "spinup" # RW spinup
-    STABILIZE = "stabilize" # MM stabilizes and large initial error correction
+    STABILIZE = "stabilize" # Derivative control, controlling yaw rate
     POINTING = "pointing" # PID active pointing 
     SATURATED = "saturated" # RW speed has exceeded saturation threshold
 
@@ -28,7 +29,9 @@ class PointingTask(BaseTask):
         period_s: float,
         datastore: DataStore,
         rw_port: SerialPortConfig | None,
+        mm_port: SerialPortConfig,
         rw_controller_config: ControllerConfig,
+        mm_controller_config: ControllerConfig,
         ground_station: GroundStationConfig,
         pointing_config: PointingConfig,
     ) -> None:
@@ -43,9 +46,13 @@ class PointingTask(BaseTask):
         self._saturation_margin_rpm = 50.0
         self._switch_threshold = pointing_config.switch_threshold
         self._yaw_rate_deadband = pointing_config.yaw_rate_deadband
+        self._mm_pulse_length_s = pointing_config.mm_pulse_length_s
+        self._mm_pulse_period_s = pointing_config.mm_pulse_period_s
         self.period = period_s
-        self.rw = RWDriver(rw_port.port) 
+        self.rw = RWDriver(rw_port.port)
+        self.mm = MMDriver(mm_port.port)
         self.rw_controller = GainScheduledController(rw_controller_config, period_s)
+        self.mm_controller = Controller(mm_controller_config, self._mm_pulse_period_s)
         self._default_gs_pos = [ground_station.latitude, ground_station.longitude, ground_station.altitude]
         
 
@@ -57,12 +64,19 @@ class PointingTask(BaseTask):
         self._stable_since = None
         self._unstable_since = None
         self._yaw_rate_window = deque(maxlen=max(5, int(0.5 / self.period)))
+        self._last_mm_pulse_started = 0.0
+        self._mm_pulse_ends_at = 0.0
 
         if self.rw is not None:
             if not self.rw.connect():
                 self.datastore.write("system.rw_vesc_connected", 0.0)
                 raise ConnectionError("RW ESC enabled but not connected")
             self.datastore.write("system.rw_vesc_connected", 1.0)
+
+        if not self.mm.connect():
+            self.datastore.write("system.mm_vesc_connected", 0.0)
+            raise ConnectionError("MM ESC enabled but not connected")
+        self.datastore.write("system.mm_vesc_connected", 1.0)
 
     def execute(self) -> None:
         self._store()
@@ -96,7 +110,8 @@ class PointingTask(BaseTask):
 
     def teardown(self) -> None:
         self.rw.close()
-    
+        self.mm.close()
+
     def _point(self) -> None:
         self.rw_controller.set_mode("pointing")
         quat, pos, gs_pos, yaw_rate, yaw, rw_rpm = self._read()
@@ -114,6 +129,22 @@ class PointingTask(BaseTask):
         rpm_cmd = self.rw_controller.output(err, yaw_rate) + 1500
 
         self.rw.set_rpm(int(rpm_cmd))
+        self._pulse_mm(rw_rpm)
+
+    def _pulse_mm(self, rw_rpm: float) -> None:
+        rw_rpm_error = rw_rpm - 1500
+        mm_current_cmd = self.mm_controller.output(rw_rpm_error)
+        self.datastore.write("pointing.mm_current_cmd", mm_current_cmd)
+        now = time.monotonic()
+
+        if now - self._last_mm_pulse_started >= self._mm_pulse_period_s:
+            self._last_mm_pulse_started = now
+            self._mm_pulse_ends_at = now + self._mm_pulse_length_s
+
+        if now < self._mm_pulse_ends_at:
+            self.mm.set_current(mm_current_cmd)
+        else:
+            self.mm.set_current(0)
 
     # def _wrap_hdg(self, hdg: float) -> float:
     #     err = (hdg + 180) % 360 - 180
@@ -219,6 +250,12 @@ class PointingTask(BaseTask):
                 self._write("rw", data)
             elif self.rw.connected == False:
                 raise ConnectionError("RW VESC disconnected during pointing task")
+        data = self.mm.read()
+        self.datastore.write("system.mm_vesc_connected", 1.0 if self.mm.connected else 0.0)
+        if data is not None:
+            self._write("mm", data)
+        elif self.mm.connected == False:
+            raise ConnectionError("MM VESC disconnected during pointing task")
 
     def _write(self, prefix: str, data) -> None:
             for f in ('rpm', 'duty_now', 'current_motor', 'current_in',

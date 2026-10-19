@@ -106,6 +106,8 @@ class PointingConfig:
     saturation_s: float = 5.0
     switch_threshold: float = 0.26
     yaw_rate_deadband: float = 0.05
+    mm_pulse_length_s: float = 0.15
+    mm_pulse_period_s: float = 5.0
 @dataclass
 class RadioConfig:
     data_rate:      int   = 1     # 0=Low, 1=Mid, 2=High
@@ -132,6 +134,7 @@ class SystemConfig:
     mavlink: SerialPortConfig
     telemetry: SerialPortConfig | None
     rw_esc: SerialPortConfig
+    mm_esc: SerialPortConfig
     controller: ControllerConfigMap
     tasks: dict[str, TaskConfig]
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
@@ -152,6 +155,7 @@ class SystemConfig:
         mavlink = SerialPortConfig(**data["mavlink"])
         telemetry = _resolve_serial_port(data["telemetry"])
         rw_esc = SerialPortConfig(**data["rw_esc"])
+        mm_esc = SerialPortConfig(**data["mm_esc"])
         controller: ControllerConfigMap = {}
         for name, cfg in data.get("controller", {}).items():
             if "Kp" in cfg:
@@ -209,6 +213,8 @@ class SystemConfig:
             saturation_s=pointing_raw.get("saturation_s", 5.0),
             switch_threshold=pointing_raw.get("switch_threshold", 0.26),
             yaw_rate_deadband=pointing_raw.get("yaw_rate_deadband", 0.05),
+            mm_pulse_length_s=pointing_raw.get("mm_pulse_length_s", 0.15),
+            mm_pulse_period_s=pointing_raw.get("mm_pulse_period_s", 5.0),
         )
 
         gs_raw = data.get("ground_station", {})
@@ -240,6 +246,7 @@ class SystemConfig:
             mavlink=mavlink,
             telemetry=telemetry,
             rw_esc=rw_esc,
+            mm_esc=mm_esc,
             controller=controller,
             tasks=tasks,
             flight_stage=flight_stage,

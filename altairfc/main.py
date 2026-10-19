@@ -167,7 +167,9 @@ def main() -> None:
             period_s    = config.tasks["pointing"].period_s,
             datastore   = datastore,
             rw_port = config.rw_esc,
+            mm_port = config.mm_esc,
             rw_controller_config    = config.controller["reaction_wheel"],
+            mm_controller_config    = config.controller["momentum_management"],
             ground_station  = config.ground_station,
             pointing_config = config.pointing,
         )
