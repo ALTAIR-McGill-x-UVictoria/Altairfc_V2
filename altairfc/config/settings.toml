@@ -79,7 +79,7 @@ bypass_launch_altitude_checks = true      # automatically advance ARMED→LAUNCH
 spinup_rpm = 1500.0   # RW set speed reached before the pointing controller takes over
 spinup_s = 2.0
 mm_pulse_length_s = 0.15
-mm_pulse_period_s = 5.0
+mm_pulse_period_s = 2.0
 
 [flight_stage.require]
 mavlink   = true    # MAVLink attitude data must be fresh
@@ -121,15 +121,20 @@ watchdog_s = 30.0 # seconds without GS contact on new channel before rolling bac
 # Effective rate = TX_RATE_HZ * scale. Keeps the TX queue from overflowing at lower data rates.
 rate_scale = [0.1, 0.33, 1.0]
 
+<<<<<<< HEAD
 [controller.reaction_wheel]
 Kp = 8000.0
+=======
+[controller.reaction_wheel.pointing]
+Kp = 200.0
+>>>>>>> a2e8418 (Max mm current)
 Kd = 624.0
 Ki = 0.0
 max_rpm = 1500.0
 min_rpm = -1500.0
 
 [controller.momentum_management]
-Kp = -0.00003488372
+Kp = 0.00003488372
 Kd = 0.0
 Ki = 0.0
 max_current = 0.15
