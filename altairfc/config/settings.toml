@@ -76,6 +76,8 @@ preflight_debounce_s          = 5.0       # seconds preflight checks must pass c
 bypass_launch_altitude_checks = true      # automatically advance ARMED→LAUNCH→ASCENT without altitude gain
 
 [pointing]
+spinup_rpm = 1500.0   # RW set speed reached before the pointing controller takes over
+spinup_s = 2.0
 mm_pulse_length_s = 0.15
 mm_pulse_period_s = 5.0
 

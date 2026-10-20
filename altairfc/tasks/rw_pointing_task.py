@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from config.settings import ControllerConfig, SerialPortConfig
+import time
+from config.settings import ControllerConfig, PointingConfig, SerialPortConfig
 from controls.controller import Controller
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -17,12 +18,17 @@ class RWPointingTask(BaseTask):
         datastore: DataStore,
         rw_port: SerialPortConfig,
         rw_controller_config: ControllerConfig,
+        pointing_config: PointingConfig,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
+        self._spinup_rpm = pointing_config.spinup_rpm
+        self._spinup_s = pointing_config.spinup_s
         self.rw = RWDriver(rw_port.port)
         self.rw_controller = Controller(rw_controller_config, period_s)
 
     def setup(self) -> None:
+        self._pointing_started_at = None
+
         if not self.rw.connect():
             self.datastore.write("system.rw_vesc_connected", 0.0)
             raise ConnectionError("RW ESC enabled but not connected")
@@ -35,7 +41,14 @@ class RWPointingTask(BaseTask):
             self.rw.set_current(0) # Outside the pointing window: motor released
             return
 
-        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        if self._pointing_started_at is None:
+            self._pointing_started_at = time.monotonic()
+
+        if time.monotonic() - self._pointing_started_at < self._spinup_s:
+            self.rw.set_rpm(self._spinup_rpm) # Spin up to the set speed before pointing
+            return
+
+        yaw =float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         self.datastore.write("pointing.heading_error", yaw)
         rw_rpm_cmd = self.rw_controller.output(yaw, yaw_rate) + 1500

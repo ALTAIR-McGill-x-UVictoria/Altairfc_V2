@@ -169,6 +169,7 @@ def main() -> None:
             datastore   = datastore,
             rw_port = config.rw_esc,
             rw_controller_config    = config.controller["reaction_wheel"],
+            pointing_config = config.pointing,
         )
     )
 
