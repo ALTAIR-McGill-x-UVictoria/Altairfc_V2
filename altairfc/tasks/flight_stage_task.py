@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import time
@@ -96,7 +96,7 @@ _LAUNCH_GAIN_M   = 20.0
 _LAUNCH_WINDOW_S = 10.0
 
 # Actuator check: RW connection
-_RW_CONNECT_TIMEOUT_S = 15.0   # max seconds to wait for PointingTask to confirm RW connected
+_RW_CONNECT_TIMEOUT_S = 15.0   # max seconds to wait for RWPointingTask to confirm RW connected
 
 
 class _ActuatorChecks:
@@ -567,11 +567,11 @@ class FlightStageTask(BaseTask):
     def _stop_motor_tasks(self) -> None:
         if self._scheduler is None:
             return
-        task_name = "pointing"
-        task = self._scheduler.get_task(task_name)
-        if task is not None and task.is_alive:
-            logger.info("FlightStageTask: stopping %s", task_name)
-            task.stop()
+        for task_name in ("rw_pointing", "mm_pointing"):
+            task = self._scheduler.get_task(task_name)
+            if task is not None and task.is_alive:
+                logger.info("FlightStageTask: stopping %s", task_name)
+                task.stop()
 
     def _write_flag(self, key: str, value: int) -> None:
         """Write event.{key} to DataStore only if the value changed."""

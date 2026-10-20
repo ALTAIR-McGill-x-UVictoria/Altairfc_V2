@@ -71,7 +71,8 @@ from telemetry.transport import SerialTransport
 from tasks.pitch_task import PitchTask
 from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
-from tasks.pointing_task import PointingTask
+from tasks.rw_pointing_task import RWPointingTask
+from tasks.mm_pointing_task import MMPointingTask
 
 
 
@@ -162,15 +163,22 @@ def main() -> None:
     )
 
     scheduler.register(
-        PointingTask(
-            name    = "pointing",
-            period_s    = config.tasks["pointing"].period_s,
+        RWPointingTask(
+            name    = "rw_pointing",
+            period_s    = config.tasks["rw_pointing"].period_s,
             datastore   = datastore,
             rw_port = config.rw_esc,
-            mm_port = config.mm_esc,
             rw_controller_config    = config.controller["reaction_wheel"],
+        )
+    )
+
+    scheduler.register(
+        MMPointingTask(
+            name    = "mm_pointing",
+            period_s    = config.tasks["mm_pointing"].period_s,
+            datastore   = datastore,
+            mm_port = config.mm_esc,
             mm_controller_config    = config.controller["momentum_management"],
-            ground_station  = config.ground_station,
             pointing_config = config.pointing,
         )
     )
