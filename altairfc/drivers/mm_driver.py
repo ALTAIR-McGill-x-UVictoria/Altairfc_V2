@@ -55,6 +55,11 @@ class MMDriver:
             logger.warning("MM telemetry stale (%.1fs)", now - self._last_rx)
             self._last_stale_warn = now
         return data
+
+    def set_rpm(self, rpm: int) -> None:
+        limited_rpm = int(min(max(rpm, 0), 3000))
+        if self.motor is not None:
+            self.motor.set_rpm(limited_rpm)
         
     def set_current(self, current: int) -> None:
         if self.motor is not None:
