@@ -121,13 +121,8 @@ watchdog_s = 30.0 # seconds without GS contact on new channel before rolling bac
 # Effective rate = TX_RATE_HZ * scale. Keeps the TX queue from overflowing at lower data rates.
 rate_scale = [0.1, 0.33, 1.0]
 
-<<<<<<< HEAD
 [controller.reaction_wheel]
-Kp = 8000.0
-=======
-[controller.reaction_wheel.pointing]
 Kp = 200.0
->>>>>>> a2e8418 (Max mm current)
 Kd = 624.0
 Ki = 0.0
 max_rpm = 1500.0
