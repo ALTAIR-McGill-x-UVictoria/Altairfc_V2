@@ -41,7 +41,9 @@ class MMPointingTask(BaseTask):
         if int(self.datastore.read("event.pointing_active", default=0.0)) != 1:
             self.mm.set_current(0) # Outside the pointing window: motor released
             return
-
+        
+        # heading_error = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        # error_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         rw_rpm = float(self.datastore.read("rw.rpm", default=0.0))/7
         rw_rpm_error = rw_rpm - 1500
         mm_current_cmd = self.mm_controller.output(rw_rpm_error)
@@ -54,8 +56,10 @@ class MMPointingTask(BaseTask):
 
         if now < self._mm_pulse_ends_at:
             self.mm.set_current(mm_current_cmd)
+            return
         else:
             self.mm.set_current(0)
+            return
 
     def teardown(self) -> None:
         self.mm.close()

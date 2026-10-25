@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # MAVLink message types this task subscribes to.
 # GPS_RAW_INT is used instead of GLOBAL_POSITION_INT — PX4 streams it by default.
 # LOCAL_POSITION_NED provides relative altitude (above home) since GPS_RAW_INT omits it.
-_SUBSCRIBED_TYPES = ("ATTITUDE", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
+_SUBSCRIBED_TYPES = ("ATTITUDE", "ATTITUDE_QUATERNION", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
 
 
 class MavlinkTask(BaseTask):

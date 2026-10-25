@@ -48,7 +48,7 @@ class RWPointingTask(BaseTask):
             self.rw.set_rpm(self._spinup_rpm) # Spin up to the set speed before pointing
             return
 
-        yaw =float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         self.datastore.write("pointing.heading_error", yaw)
         rw_rpm_cmd = self.rw_controller.output(yaw, yaw_rate) + 1500

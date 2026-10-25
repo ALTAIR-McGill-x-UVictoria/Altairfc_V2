@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
     from config.settings import ControllerConfig
 
@@ -30,7 +28,7 @@ class Controller:
         self.e_prev = error
 
         output = P + D + I
-        output = np.clip(output, self.min_value, self.max_value)
+        output = min(max(output, self.min_value), self.max_value)
 
         return output
 
