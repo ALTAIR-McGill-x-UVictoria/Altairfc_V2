@@ -65,6 +65,7 @@ class MMDriver:
         if self.motor is not None:
             self.motor.set_current(current)
 
+
     def set_brake_current(self, current: int) -> None:
         if self.motor is not None:
             self.motor.set_brake_current(current)
