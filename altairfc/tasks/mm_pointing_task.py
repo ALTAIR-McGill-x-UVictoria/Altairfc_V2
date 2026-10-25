@@ -55,7 +55,7 @@ class MMPointingTask(BaseTask):
             self._mm_pulse_ends_at = now + self._mm_pulse_length_s
 
         if now < self._mm_pulse_ends_at:
-            self.mm.set_current(mm_current_cmd)
+            self.mm.set_rpm(3000)
             return
         else:
             self.mm.set_current(0)
