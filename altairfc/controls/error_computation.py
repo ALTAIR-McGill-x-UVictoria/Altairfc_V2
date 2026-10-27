@@ -26,7 +26,8 @@ def compute_error(
     r_err = np.array([n, e, d])
     x = r_err/np.linalg.norm(r_err)
 
-    world_to_body = R.from_quat(attitude_q).as_matrix()
+    # PX4's attitude quaternion rotates body (FRD) -> NED, so invert it to express the NED target vector in body axes.
+    world_to_body = R.from_quat(attitude_q).inv().as_matrix()
     direction = world_to_body @ x
     azimuth_error_rad = np.arctan2(direction[1], direction[0])
     horizontal_distance = np.sqrt(direction[0]**2 + direction[1]**2)

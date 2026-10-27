@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -78,6 +79,10 @@ from tasks.mm_pointing_task import MMPointingTask
 
 
 def main() -> None:
+    # GIL hand-off interval (default 5 ms): a waking control thread waits at most this long
+    # for a busy thread to release the GIL. This does not change any task's loop rate.
+    sys.setswitchinterval(0.001)
+
     buzzer = BuzzerPlayer()
     buzzer.start()
     buzzer.play(TUNE_PENDING)
