@@ -26,7 +26,7 @@ class MMPointingTask(BaseTask):
         self._mm_pulse_period_s = pointing_config.mm_pulse_period_s
         self._rw_bias_rpm = pointing_config.rw_bias_rpm
         self.mm = MMDriver(mm_port.port)
-        self.mm_controller = Controller(mm_controller_config, self._mm_pulse_period_s)
+        self.mm_controller = Controller(mm_controller_config, period_s)  # output() runs every tick, not once per pulse
 
     def setup(self) -> None:
         self._mode = None # Re-enter the commanded mode after a restart
