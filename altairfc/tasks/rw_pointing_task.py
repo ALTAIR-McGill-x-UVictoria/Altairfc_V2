@@ -68,8 +68,8 @@ class RWPointingTask(BaseTask):
             raise ConnectionError("RW VESC disconnected during pointing task")
 
     def _write(self, prefix: str, data) -> None:
-            for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
-                    'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
+            for f in ('rpm', 'duty_cycle_now', 'avg_motor_current', 'avg_input_current',
+                    'v_in', 'temp_fet', 'amp_hours', 'tachometer',
                     'tachometer_abs'):
                 self.datastore.write(f"{prefix}.{f}", getattr(data, f, 0.0))
             fault = getattr(data, 'mc_fault_code', b'\x00')

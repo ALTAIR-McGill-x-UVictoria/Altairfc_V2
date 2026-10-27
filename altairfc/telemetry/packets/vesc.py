@@ -15,10 +15,10 @@ class RWVescPacket:
 
     DataStore keys (written by RWTask._store()):
         rw.rpm
-        rw.duty_now
-        rw.current_motor
+        rw.duty_cycle_now
+        rw.avg_motor_current
         rw.v_in
-        rw.temp_pcb
+        rw.temp_fet
         rw.mc_fault_code
     """
 
@@ -26,10 +26,10 @@ class RWVescPacket:
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "rpm":           "rw.rpm",
-        "duty_cycle":    "rw.duty_now",
-        "motor_current": "rw.current_motor",
+        "duty_cycle":    "rw.duty_cycle_now",
+        "motor_current": "rw.avg_motor_current",
         "input_voltage": "rw.v_in",
-        "temperature":   "rw.temp_pcb",
+        "temperature":   "rw.temp_fet",
         "fault_code":    "rw.mc_fault_code",
     }
 
@@ -50,10 +50,10 @@ class MMVescPacket:
 
     DataStore keys (written by MMTask._store()):
         mm.rpm
-        mm.duty_now
-        mm.current_motor
+        mm.duty_cycle_now
+        mm.avg_motor_current
         mm.v_in
-        mm.temp_pcb
+        mm.temp_fet
         mm.mc_fault_code
     """
 
@@ -61,10 +61,10 @@ class MMVescPacket:
 
     DATASTORE_KEYS: ClassVar[dict[str, str]] = {
         "rpm":           "mm.rpm",
-        "duty_cycle":    "mm.duty_now",
-        "motor_current": "mm.current_motor",
+        "duty_cycle":    "mm.duty_cycle_now",
+        "motor_current": "mm.avg_motor_current",
         "input_voltage": "mm.v_in",
-        "temperature":   "mm.temp_pcb",
+        "temperature":   "mm.temp_fet",
         "fault_code":    "mm.mc_fault_code",
     }
 

@@ -24,7 +24,7 @@ period_s = 0.05
 
 [tasks.mm_pointing]
 enabled = true
-period_s = 0.05
+period_s = 0.01   # 100 Hz — MM pulses are 24-112 ms and only end on a loop tick
 
 [tasks.sphere_pitch]
 enabled = false

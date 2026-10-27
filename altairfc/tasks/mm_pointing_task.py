@@ -55,10 +55,10 @@ class MMPointingTask(BaseTask):
 
     def _pulse(self) -> None:
         rw_rpm = float(self.datastore.read("rw.rpm", default=0.0))/7
-        rw_current = float(self.datastore.read("rw.current_motor", default=0.0))
+        rw_current = float(self.datastore.read("rw.avg_motor_current", default=0.0))
         mm_current_cmd = self.modulator.modulate(rw_rpm, rw_current, time.monotonic())
         self.datastore.write("pointing.mm_current_cmd", mm_current_cmd)
-        self.mm.set_current(int(mm_current_cmd * 1000)) # VESC takes mA
+        self.mm.set_current(int(mm_current_cmd)) 
 
     def _store(self) -> None:
         data = self.mm.read()
@@ -69,8 +69,8 @@ class MMPointingTask(BaseTask):
             raise ConnectionError("MM VESC disconnected during pointing task")
 
     def _write(self, prefix: str, data) -> None:
-            for f in ('rpm', 'duty_now', 'current_motor', 'current_in',
-                    'v_in', 'temp_pcb', 'amp_hours', 'tachometer',
+            for f in ('rpm', 'duty_cycle_now', 'avg_motor_current', 'avg_input_current',
+                    'v_in', 'temp_fet', 'amp_hours', 'tachometer',
                     'tachometer_abs'):
                 self.datastore.write(f"{prefix}.{f}", getattr(data, f, 0.0))
             fault = getattr(data, 'mc_fault_code', b'\x00')
