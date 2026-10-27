@@ -10,6 +10,12 @@ import controls.error_computation as ec
     ([45.5048, -73.5772, 1060.0], [0.0, 1000.0, 1000.0], [0.0, 0.0, 0.0, 1.0], np.pi/2, np.pi/4),
     ([45.5048, -73.5772, 1060.0], [1000.0, 0.0, 1000.0], [0.0, 0.0, 0.0, 1.0], 0.0, np.pi/4),
     ([45.5048, -73.5772, 1060.0], [0.0, 0.0, 1000.0], [0.0, 0.0, 0.0, 1.0], 0.0, np.pi/2),
+    # Nose yawed 90° to East (body->NED quaternion, [x, y, z, w]); GS due East is straight ahead
+    ([45.5048, -73.5772, 1060.0], [0.0, 1000.0, 0.0], [0.0, 0.0, np.sin(np.pi/4), np.cos(np.pi/4)], 0.0, 0.0),
+    # Nose East; GS due North is 90° to the left
+    ([45.5048, -73.5772, 1060.0], [1000.0, 0.0, 0.0], [0.0, 0.0, np.sin(np.pi/4), np.cos(np.pi/4)], -np.pi/2, 0.0),
+    # Nose pitched up 45° facing North; level GS due North appears 45° below the nose
+    ([45.5048, -73.5772, 1060.0], [1000.0, 0.0, 0.0], [0.0, np.sin(np.pi/8), 0.0, np.cos(np.pi/8)], 0.0, np.pi/4),
 
 
 ])
