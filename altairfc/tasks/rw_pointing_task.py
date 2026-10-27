@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-import time
 from config.settings import ControllerConfig, PointingConfig, SerialPortConfig
 from controls.controller import Controller
+from controls.pointing_modes import KEY_MODE, PointingMode
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.rw_driver import RWDriver
@@ -21,13 +21,12 @@ class RWPointingTask(BaseTask):
         pointing_config: PointingConfig,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
-        self._spinup_rpm = pointing_config.spinup_rpm
-        self._spinup_s = pointing_config.spinup_s
+        self._bias_rpm = pointing_config.rw_bias_rpm
         self.rw = RWDriver(rw_port.port)
         self.rw_controller = Controller(rw_controller_config, period_s)
 
     def setup(self) -> None:
-        self._pointing_started_at = None
+        self._mode = None # Re-enter the commanded mode after a restart
 
         if not self.rw.connect():
             self.datastore.write("system.rw_vesc_connected", 0.0)
@@ -37,26 +36,28 @@ class RWPointingTask(BaseTask):
     def execute(self) -> None:
         self._store()
 
-        if int(self.datastore.read("event.pointing_active", default=0.0)) != 1:
-            self.rw.set_current(0) # Outside the pointing window: motor released
-            return
+        mode = PointingMode(self.datastore.read(KEY_MODE, default=PointingMode.SAFE))
+        if mode != self._mode:
+            self._on_enter(mode)
+            self._mode = mode
 
-        if self._pointing_started_at is None:
-            self._pointing_started_at = time.monotonic()
+        if mode == PointingMode.SPINUP:
+            self.rw.set_rpm(self._bias_rpm) # Spin up to the bias speed before pointing
 
-        if time.monotonic() - self._pointing_started_at < self._spinup_s:
-            self.rw.set_rpm(self._spinup_rpm) # Spin up to the set speed before pointing
-            return
+        elif mode == PointingMode.POINTING:
+            yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+            yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
+            rw_rpm_cmd = self.rw_controller.output(yaw, yaw_rate) + self._bias_rpm
+            self.rw.set_rpm(int(rw_rpm_cmd))
 
-        yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
-        print(yaw)
-        yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
-        self.datastore.write("pointing.heading_error", yaw)
-        rw_rpm_cmd = self.rw_controller.output(yaw, yaw_rate) + 1500
-        self.rw.set_rpm(int(rw_rpm_cmd))
+        else:
+            self.rw.set_current(0) # Motor released
 
     def teardown(self) -> None:
         self.rw.close()
+
+    def _on_enter(self, mode: PointingMode) -> None:
+        self.rw_controller.reset_integrator()
 
     def _store(self) -> None:
         data = self.rw.read()

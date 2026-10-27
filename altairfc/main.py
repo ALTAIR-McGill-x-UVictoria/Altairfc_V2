@@ -71,6 +71,7 @@ from telemetry.transport import SerialTransport
 from tasks.pitch_task import PitchTask
 from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
+from tasks.pointing_supervisor_task import PointingSupervisorTask
 from tasks.rw_pointing_task import RWPointingTask
 from tasks.mm_pointing_task import MMPointingTask
 
@@ -105,10 +106,10 @@ def main() -> None:
     datastore = DataStore()
 
     # Write all flight settings to DataStore before tasks start.
-    # FlightStageTask, RWTask, and MMTask read these keys each cycle so that
+    # FlightStageTask and PitchTask read these keys each cycle so that
     # an UpdateSettingCommand from the GS takes effect without a restart.
     _fs = config.flight_stage
-    for _key, _val in {
+    _settings = {
         "settings.termination_altitude_m":       _fs.termination_altitude_m,
         "settings.burst_altitude_m":             _fs.burst_altitude_m,
         "settings.burst_altitude_uncertainty_m": _fs.burst_altitude_uncertainty_m,
@@ -121,13 +122,14 @@ def main() -> None:
         "settings.termination_confirm_window_s": _fs.termination_confirm_window_s,
         "settings.pointing_activate_altitude_m": _fs.pointing_activate_altitude_m,
         "settings.pointing_duration_min":        _fs.pointing_duration_min,
-    }.items():
+        "settings.gs_use_hardcoded":             1.0 if config.ground_station.use_hardcoded else 0.0,
+        "settings.gs_lat":                       config.ground_station.latitude,
+        "settings.gs_lon":                       config.ground_station.longitude,
+        "settings.gs_alt":                       config.ground_station.altitude,
+    }
+    for _key, _val in _settings.items():
         datastore.write(_key, float(_val))
-    datastore.write("settings.gs_use_hardcoded", 1.0 if config.ground_station.use_hardcoded else 0.0)
-    datastore.write("settings.gs_lat", float(config.ground_station.latitude))
-    datastore.write("settings.gs_lon", float(config.ground_station.longitude))
-    datastore.write("settings.gs_alt", float(config.ground_station.altitude))
-    logger.info("Wrote 18 flight settings to DataStore")
+    logger.info("Wrote %d flight settings to DataStore", len(_settings))
 
     scheduler = TaskScheduler(datastore, config)
 
@@ -159,6 +161,16 @@ def main() -> None:
             period_s=config.tasks["sphere_pitch"].period_s,
             datastore=datastore,
             ground_station=config.ground_station,
+        )
+    )
+
+    # Registered before the motor tasks so pointing.mode exists when they start
+    scheduler.register(
+        PointingSupervisorTask(
+            name="pointing_supervisor",
+            period_s=config.tasks["pointing_supervisor"].period_s,
+            datastore=datastore,
+            pointing_config=config.pointing,
         )
     )
 
@@ -224,7 +236,6 @@ def main() -> None:
             period_s=config.tasks["flight_stage"].period_s,
             datastore=datastore,
             config=config.flight_stage,
-            scheduler=scheduler,
         )
     )
 

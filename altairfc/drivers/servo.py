@@ -8,8 +8,8 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 SERVO_PIN = 26
-SOURCE_LIMIT_DEG = 22.5   # physical ±range of source from nadir (servo ±90° at 4:1 ratio)
-GEAR_RATIO = 4.0          # servo moves GEAR_RATIO × more than the source
+SOURCE_LIMIT_DEG = 45   # physical ±range of source from nadir (servo ±90° at 4:1 ratio)
+GEAR_RATIO = 2.0          # servo moves GEAR_RATIO × more than the source
 
 
 class ServoPointer:

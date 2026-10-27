@@ -238,15 +238,15 @@ class LocalGpsPacket:
 
 @dataclass
 class PointingPacket:
-    """Packet ID 0x0A — pointing state (heading error, az error, RW saturation, GPS2 heading)."""
+    """Packet ID 0x0A — pointing state (heading error, az error, pointing mode, GPS2 heading)."""
     PACKET_ID:    ClassVar[int]          = 0x0A
     STRUCT_FMT:   ClassVar[struct.Struct] = struct.Struct("<ffff")
-    FIELD_NAMES:  ClassVar[tuple]        = ("heading_error", "az_error", "rw_saturated", "heading")
+    FIELD_NAMES:  ClassVar[tuple]        = ("heading_error", "az_error", "mode", "heading")
     UNITS:        ClassVar[tuple]        = ("deg", "rad", "", "deg")
 
     heading_error: float = 0.0
     az_error:      float = 0.0
-    rw_saturated:  float = 0.0
+    mode:          float = 0.0
     heading:       float = 0.0
 
 

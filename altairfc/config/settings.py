@@ -97,10 +97,10 @@ class FlightStageConfig:
 
 @dataclass
 class PointingConfig:
-    spinup_rpm: float = 1500.0
     spinup_s: float = 2.0
     mm_pulse_length_s: float = 0.15
     mm_pulse_period_s: float = 5.0
+    rw_bias_rpm: float = 1500.0
 @dataclass
 class RadioConfig:
     data_rate:      int   = 1     # 0=Low, 1=Mid, 2=High
@@ -197,10 +197,10 @@ class SystemConfig:
 
         pointing_raw =  data.get("pointing", {})
         pointing = PointingConfig(
-            spinup_rpm=pointing_raw.get("spinup_rpm", 1500.0),
             spinup_s=pointing_raw.get("spinup_s", 2.0),
             mm_pulse_length_s=pointing_raw.get("mm_pulse_length_s", 0.15),
             mm_pulse_period_s=pointing_raw.get("mm_pulse_period_s", 5.0),
+            rw_bias_rpm=pointing_raw.get("rw_bias_rpm", 1500.0),
         )
 
         gs_raw = data.get("ground_station", {})

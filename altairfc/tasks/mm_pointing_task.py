@@ -4,6 +4,7 @@ import logging
 import time
 from config.settings import ControllerConfig, PointingConfig, SerialPortConfig
 from controls.controller import Controller
+from controls.pointing_modes import KEY_MODE, PointingMode
 from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.mm_driver import MMDriver
@@ -23,12 +24,12 @@ class MMPointingTask(BaseTask):
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._mm_pulse_length_s = pointing_config.mm_pulse_length_s
         self._mm_pulse_period_s = pointing_config.mm_pulse_period_s
+        self._rw_bias_rpm = pointing_config.rw_bias_rpm
         self.mm = MMDriver(mm_port.port)
         self.mm_controller = Controller(mm_controller_config, self._mm_pulse_period_s)
 
     def setup(self) -> None:
-        self._last_mm_pulse_started = 0.0
-        self._mm_pulse_ends_at = 0.0
+        self._mode = None # Re-enter the commanded mode after a restart
 
         if not self.mm.connect():
             self.datastore.write("system.mm_vesc_connected", 0.0)
@@ -38,14 +39,30 @@ class MMPointingTask(BaseTask):
     def execute(self) -> None:
         self._store()
 
-        if int(self.datastore.read("event.pointing_active", default=0.0)) != 1:
-            self.mm.set_current(0) # Outside the pointing window: motor released
-            return
-        
+        mode = PointingMode(self.datastore.read(KEY_MODE, default=PointingMode.SAFE))
+        if mode != self._mode:
+            self._on_enter(mode)
+            self._mode = mode
+
+        if mode == PointingMode.POINTING:
+            self._pulse()
+
+        else:
+            self.mm.set_current(0) # Motor released
+
+    def teardown(self) -> None:
+        self.mm.close()
+
+    def _on_enter(self, mode: PointingMode) -> None:
+        self.mm_controller.reset_integrator()
+        self._last_mm_pulse_started = 0.0
+        self._mm_pulse_ends_at = 0.0
+
+    def _pulse(self) -> None:
         # heading_error = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         # error_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         rw_rpm = float(self.datastore.read("rw.rpm", default=0.0))/7
-        rw_rpm_error = rw_rpm - 1500
+        rw_rpm_error = rw_rpm - self._rw_bias_rpm
         mm_current_cmd = self.mm_controller.output(rw_rpm_error)
         self.datastore.write("pointing.mm_current_cmd", mm_current_cmd)
         now = time.monotonic()
@@ -56,13 +73,8 @@ class MMPointingTask(BaseTask):
 
         if now < self._mm_pulse_ends_at:
             self.mm.set_rpm(3000)
-            return
         else:
             self.mm.set_current(0)
-            return
-
-    def teardown(self) -> None:
-        self.mm.close()
 
     def _store(self) -> None:
         data = self.mm.read()

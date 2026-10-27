@@ -14,6 +14,10 @@ period_s = 0.02   # 50 Hz
 enabled = true
 period_s = 0.05    # 20 Hz tick — each packet type has its own TX_RATE_HZ set in its class
 
+[tasks.pointing_supervisor]
+enabled = true
+period_s = 0.01   # no I/O; lower it to cut mode-switch latency
+
 [tasks.rw_pointing]
 enabled = true
 period_s = 0.05
@@ -76,10 +80,10 @@ preflight_debounce_s          = 5.0       # seconds preflight checks must pass c
 bypass_launch_altitude_checks = true      # automatically advance ARMED→LAUNCH→ASCENT without altitude gain
 
 [pointing]
-spinup_rpm = 1500.0   # RW set speed reached before the pointing controller takes over
-spinup_s = 2.0
-mm_pulse_length_s = 0.15
+spinup_s = 2.0        # time the RW spends spinning up to rw_bias_rpm before the pointing controller takes over
+mm_pulse_length_s = 0.1
 mm_pulse_period_s = 3.0
+rw_bias_rpm = 1500.0  # RW speed the pointing controller works around; MM dumps momentum toward it
 
 [flight_stage.require]
 mavlink   = true    # MAVLink attitude data must be fresh

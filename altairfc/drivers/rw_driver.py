@@ -82,7 +82,7 @@ class RWDriver:
 
     def stop(self) -> None:
         if self.motor is not None:
-            self.motor.set_rpm(0)
+            self.motor.set_current(0) 
 
     def close(self) -> None:
         self.stop()
