@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
-from config.settings import ControllerConfig, PointingConfig, SerialPortConfig
-from controls.controller import Controller
+from config.settings import ModulatorConfig, PointingConfig, SerialPortConfig
+from controls.modulator import Modulator
 from controls.pointing_modes import KEY_MODE, PointingMode
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -18,15 +18,12 @@ class MMPointingTask(BaseTask):
         period_s: float,
         datastore: DataStore,
         mm_port: SerialPortConfig,
-        mm_controller_config: ControllerConfig,
+        modulator_config: ModulatorConfig,
         pointing_config: PointingConfig,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
-        self._mm_pulse_length_s = pointing_config.mm_pulse_length_s
-        self._mm_pulse_period_s = pointing_config.mm_pulse_period_s
-        self._rw_bias_rpm = pointing_config.rw_bias_rpm
         self.mm = MMDriver(mm_port.port)
-        self.mm_controller = Controller(mm_controller_config, self._mm_pulse_period_s)
+        self.modulator = Modulator(modulator_config, pointing_config.rw_bias_rpm, period_s)
 
     def setup(self) -> None:
         self._mode = None # Re-enter the commanded mode after a restart
@@ -54,27 +51,14 @@ class MMPointingTask(BaseTask):
         self.mm.close()
 
     def _on_enter(self, mode: PointingMode) -> None:
-        self.mm_controller.reset_integrator()
-        self._last_mm_pulse_started = 0.0
-        self._mm_pulse_ends_at = 0.0
+        self.modulator.reset()
 
     def _pulse(self) -> None:
-        # heading_error = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
-        # error_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
         rw_rpm = float(self.datastore.read("rw.rpm", default=0.0))/7
-        rw_rpm_error = rw_rpm - self._rw_bias_rpm
-        mm_current_cmd = self.mm_controller.output(rw_rpm_error)
+        rw_current = float(self.datastore.read("rw.current_motor", default=0.0))
+        mm_current_cmd = self.modulator.modulate(rw_rpm, rw_current, time.monotonic())
         self.datastore.write("pointing.mm_current_cmd", mm_current_cmd)
-        now = time.monotonic()
-
-        if now - self._last_mm_pulse_started >= self._mm_pulse_period_s:
-            self._last_mm_pulse_started = now
-            self._mm_pulse_ends_at = now + self._mm_pulse_length_s
-
-        if now < self._mm_pulse_ends_at:
-            self.mm.set_rpm(3000)
-        else:
-            self.mm.set_current(0)
+        self.mm.set_current(int(mm_current_cmd * 1000)) # VESC takes mA
 
     def _store(self) -> None:
         data = self.mm.read()

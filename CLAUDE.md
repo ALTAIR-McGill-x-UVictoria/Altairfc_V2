@@ -92,7 +92,8 @@ All runtime parameters live in `altairfc/config/settings.toml`. The `SystemConfi
 
 Key config sections:
 - `[tasks.<name>]` — `enabled` / `period_s` per task
-- `[controller.reaction_wheel]` / `[controller.momentum_management]` — PID gains
+- `[controller.reaction_wheel]` — RW PID gains
+- `[modulator]` — MM (pivot motor) pulse width modulator parameters, tuned in HAB_ADCS_SIM
 - `[flight_stage]` — altitude thresholds and timing windows for the state machine
 - `[rw_esc]` / `[mm_esc]` — serial ports for VESC motor controllers
 

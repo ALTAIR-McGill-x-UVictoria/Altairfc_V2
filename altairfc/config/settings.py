@@ -98,9 +98,25 @@ class FlightStageConfig:
 @dataclass
 class PointingConfig:
     spinup_s: float = 2.0
-    mm_pulse_length_s: float = 0.15
-    mm_pulse_period_s: float = 5.0
     rw_bias_rpm: float = 1500.0
+
+
+@dataclass
+class ModulatorConfig:
+    pulse_current: float
+    settle_time: float
+    integration_threshold: float
+    deadband: float
+    loop_gain: float
+    lookahead_s: float
+    mm_torque_constant: float
+    rw_max_offset_rpm: float
+    rw_rotor_inertia: float
+    rw_load_inertia: float
+    rw_torque_constant: float
+    rw_viscous_friction_coeff: float
+
+
 @dataclass
 class RadioConfig:
     data_rate:      int   = 1     # 0=Low, 1=Mid, 2=High
@@ -130,6 +146,7 @@ class SystemConfig:
     mm_esc: SerialPortConfig
     controller: ControllerConfigMap
     tasks: dict[str, TaskConfig]
+    modulator: ModulatorConfig
     flight_stage: FlightStageConfig = field(default_factory=FlightStageConfig)
     pointing: PointingConfig = field(default_factory=PointingConfig)
     ground_station: GroundStationConfig = field(
@@ -198,10 +215,9 @@ class SystemConfig:
         pointing_raw =  data.get("pointing", {})
         pointing = PointingConfig(
             spinup_s=pointing_raw.get("spinup_s", 2.0),
-            mm_pulse_length_s=pointing_raw.get("mm_pulse_length_s", 0.15),
-            mm_pulse_period_s=pointing_raw.get("mm_pulse_period_s", 5.0),
             rw_bias_rpm=pointing_raw.get("rw_bias_rpm", 1500.0),
         )
+        modulator = ModulatorConfig(**data["modulator"])
 
         gs_raw = data.get("ground_station", {})
         ground_station = GroundStationConfig(
@@ -235,6 +251,7 @@ class SystemConfig:
             mm_esc=mm_esc,
             controller=controller,
             tasks=tasks,
+            modulator=modulator,
             flight_stage=flight_stage,
             pointing=pointing,
             ground_station=ground_station,

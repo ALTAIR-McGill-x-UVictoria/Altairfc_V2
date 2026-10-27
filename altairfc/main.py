@@ -191,7 +191,7 @@ def main() -> None:
             period_s    = config.tasks["mm_pointing"].period_s,
             datastore   = datastore,
             mm_port = config.mm_esc,
-            mm_controller_config    = config.controller["momentum_management"],
+            modulator_config    = config.modulator,
             pointing_config = config.pointing,
         )
     )
