@@ -5,7 +5,7 @@ import math
 from config.settings import GroundStationConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
-from drivers.servo import ServoPointer
+from drivers.servo import ServoPointer, nadir_angle_deg
 from controls.error_computation import compute_error
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ class PitchTask(BaseTask):
 
     def _write_pointing(self, yaw: float, az_err: float, pitch_err_rad: float) -> None:
         target_heading = (yaw + az_err + math.pi) % (2.0 * math.pi) - math.pi
-        desired_deflection_deg = -math.degrees(pitch_err_rad)
+        desired_deflection_deg = nadir_angle_deg(pitch_err_rad)
         achieved_deflection_deg = self._servo.achieved_deflection_deg(pitch_err_rad)
         source_angle_error_deg = desired_deflection_deg - achieved_deflection_deg
         self.datastore.write("pointing.target_heading_rad",     target_heading)

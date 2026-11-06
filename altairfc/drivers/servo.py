@@ -8,17 +8,28 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 SERVO_PIN = 26
-SOURCE_LIMIT_DEG = 45   # physical ±range of source from nadir (servo ±90° at 4:1 ratio)
-GEAR_RATIO = 2.0          # servo moves GEAR_RATIO × more than the source
+SOURCE_MAX_DEG = 90.0   # source travel: 0° = straight down (nadir), 90° = horizontal
+PULSE_NADIR_US = 500    # calibrated pulse width with the source pointing down
+PULSE_SPAN_US = 2000    # pulse width change over SOURCE_MAX_DEG (500 -> 2500 us)
+
+
+def nadir_angle_deg(pitch_err_rad: float) -> float:
+    """Unclamped angle of the ground station from body-down (deg).
+
+    pitch_err is the GS elevation below the body x-y plane (+90° = straight down,
+    0° = on the body horizon), so the angle from nadir is 90° - pitch_err.
+    """
+    return 90.0 - math.degrees(pitch_err_rad)
 
 
 class ServoPointer:
     """
-    Controls the nadir-pointing light source via a pigpio-driven servo.
+    Controls the light source tilt via a pigpio-driven servo.
 
-    The servo at 90° points the source straight down (nadir). The 4:1 gear
-    ratio means the source deflects by GEAR_RATIO° for every 1° of servo
-    travel, giving a physical source range of ±22.5° from nadir.
+    Calibrated: 500 us points the source straight down (body +Z), 2500 us points
+    it 90° away from down, horizontal and toward the body +X (nose) axis. The
+    azimuth controller drives the GS into the x-z plane, so tilting by the angle
+    from nadir points the source at the GS.
     """
 
     def __init__(self) -> None:
@@ -42,14 +53,13 @@ class ServoPointer:
         """Command the servo based on pitch error to the ground station (radians)."""
         if self._pi is None:
             return
-        source_deflection_deg = float(np.clip(-math.degrees(pitch_err_rad), -SOURCE_LIMIT_DEG, SOURCE_LIMIT_DEG))
-        servo_angle_deg = 90.0 + source_deflection_deg * GEAR_RATIO
-        pulsewidth = 500 + (servo_angle_deg / 180.0) * 2000
+        angle = self.achieved_deflection_deg(pitch_err_rad)
+        pulsewidth = PULSE_NADIR_US + (angle / SOURCE_MAX_DEG) * PULSE_SPAN_US
         self._pi.set_servo_pulsewidth(SERVO_PIN, int(pulsewidth))
 
     def achieved_deflection_deg(self, pitch_err_rad: float) -> float:
-        """Return the clamped source deflection that will actually be achieved (degrees)."""
-        return float(np.clip(-math.degrees(pitch_err_rad), -SOURCE_LIMIT_DEG, SOURCE_LIMIT_DEG))
+        """Return the clamped source angle from nadir that will actually be achieved (degrees)."""
+        return float(np.clip(nadir_angle_deg(pitch_err_rad), 0.0, SOURCE_MAX_DEG))
 
     def disconnect(self) -> None:
         if self._pi is not None:
