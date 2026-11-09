@@ -81,8 +81,13 @@ class DataLoggerTask(BaseTask):
             field_types = {f.name: f.type for f in dataclasses.fields(cls)}
             row = [f"{time_unix:.3f}", f"{now:.3f}"]
             for field_name, ds_key in cls.DATASTORE_KEYS.items():
-                raw = self.datastore.read(ds_key, default=0)
-                val = int(raw) if field_types.get(field_name) == "int" else float(raw)
+                field_type = field_types.get(field_name)
+                if field_type == "str":
+                    val = str(self.datastore.read(ds_key, default=""))
+                elif field_type == "int":
+                    val = int(self.datastore.read(ds_key, default=0))
+                else:
+                    val = float(self.datastore.read(ds_key, default=0))
                 row.append(val)
             writer.writerow(row)
 

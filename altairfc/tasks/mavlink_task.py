@@ -39,6 +39,7 @@ class MavlinkTask(BaseTask):
         mavlink.gps.relative_alt     (float, m)     — above home, from LOCAL_POSITION_NED (-z)
         mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360, from GPS_RAW_INT
         mavlink.gps.num_sv           (int)          — satellites visible, from GPS_RAW_INT
+        mavlink.gps.fix_type         (int)          — 0=no GPS 1=no fix 2=2D 3=3D 4=DGPS 5/6=RTK, from GPS_RAW_INT
         mavlink.heading              (float, deg)   — dual-antenna yaw 0-360, from GPS2_RAW (only written when valid)
         mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
         mavlink.environment.press_diff   (float, hPa)
@@ -64,6 +65,7 @@ class MavlinkTask(BaseTask):
         self._heartbeat_timeout_s = heartbeat_timeout_s
         self._connect_retry_s = connect_retry_s
         self._master = None
+        self._nonfinite_warned: set[str] = set()
 
     def setup(self) -> None:
         while not self._stop_event.is_set():
@@ -149,35 +151,40 @@ class MavlinkTask(BaseTask):
             self._master = None
             self.setup()
 
-    @staticmethod
-    def _f(value: float, fallback: float = 0.0) -> float:
-        """Return fallback if value is NaN or infinite, else value."""
-        return fallback if not math.isfinite(value) else value
+    def _f(self, value: float, fallback: float = 0.0, field: str = "") -> float:
+        """Return fallback if value is NaN or infinite, else value. Logs once per field."""
+        if math.isfinite(value):
+            return value
+        if field and field not in self._nonfinite_warned:
+            self._nonfinite_warned.add(field)
+            logger.warning("MavlinkTask: %s is non-finite (%s) — writing %.1f instead", field, value, fallback)
+        return fallback
 
     def _handle_message(self, msg) -> None:
         f = self._f
         msg_type = msg.get_type()
         if msg_type == "ATTITUDE":
-            self.datastore.write("mavlink.attitude.roll",       f(msg.roll))
-            self.datastore.write("mavlink.attitude.pitch",      f(msg.pitch))
-            self.datastore.write("mavlink.attitude.yaw",        f(msg.yaw))
-            self.datastore.write("mavlink.attitude.rollspeed",  f(msg.rollspeed))
-            self.datastore.write("mavlink.attitude.pitchspeed", f(msg.pitchspeed))
-            self.datastore.write("mavlink.attitude.yawspeed",   f(msg.yawspeed))
+            self.datastore.write("mavlink.attitude.roll",       f(msg.roll,       field="mavlink.attitude.roll"))
+            self.datastore.write("mavlink.attitude.pitch",      f(msg.pitch,      field="mavlink.attitude.pitch"))
+            self.datastore.write("mavlink.attitude.yaw",        f(msg.yaw,        field="mavlink.attitude.yaw"))
+            self.datastore.write("mavlink.attitude.rollspeed",  f(msg.rollspeed,  field="mavlink.attitude.rollspeed"))
+            self.datastore.write("mavlink.attitude.pitchspeed", f(msg.pitchspeed, field="mavlink.attitude.pitchspeed"))
+            self.datastore.write("mavlink.attitude.yawspeed",   f(msg.yawspeed,   field="mavlink.attitude.yawspeed"))
 
         elif msg_type == "ATTITUDE_QUATERNION":
-            self.datastore.write("mavlink.quaternion.w", f(msg.q1))
-            self.datastore.write("mavlink.quaternion.x", f(msg.q2))
-            self.datastore.write("mavlink.quaternion.y", f(msg.q3))
-            self.datastore.write("mavlink.quaternion.z", f(msg.q4))
-            
+            self.datastore.write("mavlink.quaternion.w", f(msg.q1, field="mavlink.quaternion.w"))
+            self.datastore.write("mavlink.quaternion.x", f(msg.q2, field="mavlink.quaternion.x"))
+            self.datastore.write("mavlink.quaternion.y", f(msg.q3, field="mavlink.quaternion.y"))
+            self.datastore.write("mavlink.quaternion.z", f(msg.q4, field="mavlink.quaternion.z"))
+
         elif msg_type == "GPS_RAW_INT":
             # lat/lon in 1e-7 deg, alt in mm, cog (course over ground) in cdeg
-            self.datastore.write("mavlink.gps.lat", f(msg.lat / 1e7))
-            self.datastore.write("mavlink.gps.lon", f(msg.lon / 1e7))
-            self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3))
-            self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2))
+            self.datastore.write("mavlink.gps.lat", f(msg.lat / 1e7, field="mavlink.gps.lat"))
+            self.datastore.write("mavlink.gps.lon", f(msg.lon / 1e7, field="mavlink.gps.lon"))
+            self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3, field="mavlink.gps.alt"))
+            self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2, field="mavlink.gps.hdg"))
             self.datastore.write("mavlink.gps.num_sv", int(msg.satellites_visible))
+            self.datastore.write("mavlink.gps.fix_type", int(msg.fix_type))
 
         # elif msg_type == "GPS2_RAW":
         #     # yaw in cdeg from dual-antenna RTK source; 0 = unavailable, 65535 = no fix yet
@@ -190,18 +197,18 @@ class MavlinkTask(BaseTask):
 
         elif msg_type == "LOCAL_POSITION_NED":
             # NED frame: z is positive downward, so relative_alt = -z
-            self.datastore.write("mavlink.gps.relative_alt", f(-msg.z))
+            self.datastore.write("mavlink.gps.relative_alt", f(-msg.z, field="mavlink.gps.relative_alt"))
 
         elif msg_type == "SCALED_PRESSURE":
-            self.datastore.write("mavlink.environment.press_abs",   f(msg.press_abs))
-            self.datastore.write("mavlink.environment.press_diff",  f(msg.press_diff))
-            self.datastore.write("mavlink.environment.temperature", f(msg.temperature / 100.0))
+            self.datastore.write("mavlink.environment.press_abs",   f(msg.press_abs, field="mavlink.environment.press_abs"))
+            self.datastore.write("mavlink.environment.press_diff",  f(msg.press_diff, field="mavlink.environment.press_diff"))
+            self.datastore.write("mavlink.environment.temperature", f(msg.temperature / 100.0, field="mavlink.environment.temperature"))
 
         elif msg_type == "VFR_HUD":
-            self.datastore.write("mavlink.environment.baro_alt",    f(msg.alt))
-            self.datastore.write("mavlink.environment.climb",       f(msg.climb))
-            self.datastore.write("mavlink.environment.airspeed",    f(msg.airspeed))
-            self.datastore.write("mavlink.environment.groundspeed", f(msg.groundspeed))
+            self.datastore.write("mavlink.environment.baro_alt",    f(msg.alt, field="mavlink.environment.baro_alt"))
+            self.datastore.write("mavlink.environment.climb",       f(msg.climb, field="mavlink.environment.climb"))
+            self.datastore.write("mavlink.environment.airspeed",    f(msg.airspeed, field="mavlink.environment.airspeed"))
+            self.datastore.write("mavlink.environment.groundspeed", f(msg.groundspeed, field="mavlink.environment.groundspeed"))
 
     def teardown(self) -> None:
         if self._master is not None:

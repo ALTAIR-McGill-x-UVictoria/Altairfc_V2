@@ -7,6 +7,9 @@ from collections import deque
 from config.settings import FlightStageConfig, FlightStageRequireConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.scheduler import TaskScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -177,9 +180,11 @@ class FlightStageTask(BaseTask):
         period_s: float,
         datastore: DataStore,
         config: FlightStageConfig,
+        scheduler: "TaskScheduler | None" = None,
     ) -> None:
         super().__init__(name, period_s, datastore)
         self._cfg = config
+        self._scheduler = scheduler
 
         # State machine
         self._stage: int = STAGE_PREFLIGHT
@@ -224,6 +229,8 @@ class FlightStageTask(BaseTask):
         self._arm_cmd_pending: bool = False
         self._preflight_ok_since: float | None = None
         self._actuator_checks: _ActuatorChecks = _ActuatorChecks()
+        self._last_preflight_failures: tuple[str, ...] | None = None
+        self._last_arm_failures: tuple[str, ...] | None = None
 
         self._pointing_start_time = None
 
@@ -373,7 +380,10 @@ class FlightStageTask(BaseTask):
                     logger.info("FlightStageTask: arm checks passed — advancing to STAGE_ARMED")
                     return STAGE_ARMED
                 else:
-                    logger.debug("FlightStageTask: arm checks pending: %s", ", ".join(arm_failures))
+                    arm_failures_key = tuple(arm_failures)
+                    if arm_failures_key != self._last_arm_failures:
+                        logger.info("FlightStageTask: arm checks pending: %s", ", ".join(arm_failures))
+                        self._last_arm_failures = arm_failures_key
 
         elif stage == STAGE_ARMED:
             self._write_flag("arm_state", 1)
@@ -430,10 +440,12 @@ class FlightStageTask(BaseTask):
                     if drop >= cfg.termination_confirm_drop_m and elapsed <= cfg.termination_confirm_window_s:
                         self._write_flag("termination_fired", 1)
                         self._write_flag("pointing_active", 0)
+                        self._stop_motor_tasks()
                         return STAGE_TERMINATION
                     if elapsed > cfg.termination_confirm_window_s:
                         self._write_flag("burst_detected", 1)
                         self._write_flag("pointing_active", 0)
+                        self._stop_motor_tasks()
                         return STAGE_BURST
 
                 # Burst: sustained negative climb rate regardless of altitude
@@ -444,6 +456,7 @@ class FlightStageTask(BaseTask):
                         elif now - self._low_rate_since >= _BURST_RATE_WINDOW_S:
                             self._write_flag("burst_detected", 1)
                             self._write_flag("pointing_active", 0)
+                            self._stop_motor_tasks()
                             return STAGE_BURST
                     else:
                         self._low_rate_since = None
@@ -505,10 +518,15 @@ class FlightStageTask(BaseTask):
             if mm_entry is None or (now - mm_entry[1]) > _VESC_RPM_TIMEOUT_S:
                 failures.append("mm_vesc_missing")
 
-        if failures:
-            logger.debug("FlightStageTask: preflight failures: %s", ", ".join(failures))
-            return False
-        return True
+        failures_key = tuple(failures)
+        if failures_key != self._last_preflight_failures:
+            if failures:
+                logger.info("FlightStageTask: preflight failures: %s", ", ".join(failures))
+            elif self._last_preflight_failures:
+                logger.info("FlightStageTask: preflight failures cleared")
+            self._last_preflight_failures = failures_key
+
+        return not failures
 
     def _check_arm(self, now: float) -> tuple[bool, list[str]]:
         """
@@ -520,10 +538,12 @@ class FlightStageTask(BaseTask):
         failures: list[str] = []
 
         if req.gps:
-            gps_valid  = int(self.datastore.read("gps.valid",  default=0))
-            gps_num_sv = int(self.datastore.read("gps.num_sv", default=0))
-            if not gps_valid or gps_num_sv < _GPS_MIN_SV:
-                failures.append(f"gps_no_fix(sv={gps_num_sv})")
+            # Uses the MAVLink GPS fix (GPS_RAW_INT via Pixhawk) — the local u-blox
+            # GpsTask is a redundant/backup source and is not required to arm.
+            gps_fix_type = int(self.datastore.read("mavlink.gps.fix_type", default=0))
+            gps_num_sv   = int(self.datastore.read("mavlink.gps.num_sv",   default=0))
+            if gps_fix_type < 3 or gps_num_sv < _GPS_MIN_SV:
+                failures.append(f"gps_no_fix(fix_type={gps_fix_type},sv={gps_num_sv})")
 
         # Neutral orientation — low yaw rate (always required)
         # yaw_rate = abs(float(self.datastore.read("mavlink.attitude.yawspeed", default=999.0)))
@@ -559,6 +579,24 @@ class FlightStageTask(BaseTask):
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
+
+    def _stop_motor_tasks(self) -> None:
+        """Stop the lighting task at apogee (burst/termination).
+
+        Pointing is not stopped here: it ends via event.pointing_active = 0
+        (written at the same call sites), which PointingSupervisorTask reads.
+
+        "lighting" has no internal apogee check of its own — this is the
+        trigger that ends its run loop (see tasks/lighting_task.py), and its
+        teardown() is what actually zeroes the sphere/beacon DAC channels.
+        """
+        if self._scheduler is None:
+            return
+        for task_name in ("lighting",):
+            task = self._scheduler.get_task(task_name)
+            if task is not None and task.is_alive:
+                logger.info("FlightStageTask: stopping %s", task_name)
+                task.stop()
 
     def _write_flag(self, key: str, value: int) -> None:
         """Write event.{key} to DataStore only if the value changed."""

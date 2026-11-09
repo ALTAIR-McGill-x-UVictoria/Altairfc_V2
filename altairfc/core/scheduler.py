@@ -4,6 +4,7 @@ import logging
 import threading
 
 from config.settings import SystemConfig
+from core.cpu_profiler import TaskCpuProfiler
 from core.datastore import DataStore
 from core.task_base import BaseTask, TaskState
 
@@ -27,6 +28,9 @@ class TaskScheduler:
         self._tasks: dict[str, BaseTask] = {}
         self._monitor_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
+        self._cpu_profiler = (
+            TaskCpuProfiler(config.profiling) if config.profiling.enabled else None
+        )
 
     @property
     def shutdown_event(self) -> threading.Event:
@@ -43,11 +47,15 @@ class TaskScheduler:
         if task_cfg is not None and not task_cfg.enabled:
             logger.info("Task %s is disabled in config, skipping registration", task.name)
             return
+        if self._cpu_profiler is not None:
+            task.set_cpu_profiler(self._cpu_profiler)
         self._tasks[task.name] = task
         logger.debug("Registered task: %s", task.name)
 
     def start_all(self) -> None:
         logger.info("Starting %d task(s)", len(self._tasks))
+        if self._cpu_profiler is not None:
+            self._cpu_profiler.start()
         for task in self._tasks.values():
             task.start()
         self._monitor_thread = threading.Thread(
@@ -61,6 +69,8 @@ class TaskScheduler:
         logger.info("Stopping all tasks")
         for task in reversed(list(self._tasks.values())):
             task.stop(timeout_s=timeout_s)
+        if self._cpu_profiler is not None:
+            self._cpu_profiler.stop()
 
     def get_task(self, name: str) -> BaseTask | None:
         return self._tasks.get(name)

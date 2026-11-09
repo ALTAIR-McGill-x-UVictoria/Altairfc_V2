@@ -6,8 +6,15 @@ import threading
 import time
 
 from core.datastore import DataStore
+from core.photodiode_stream import PhotodiodeSampleBuffer
 from core.task_base import BaseTask
 from telemetry.packets.heartbeat import collect_system_stats
+from telemetry.packets.photodiode_batch import (
+    PHOTODIODE_BATCH_PACKET_ID,
+    PHOTODIODE_BATCH_SIZE,
+    PHOTODIODE_SAMPLE_PERIOD_US,
+    PhotodiodeBatchPacket,
+)
 from telemetry.registry import packet_registry
 from telemetry.serializer import PacketSerializer
 from telemetry.transport import SerialTransport
@@ -44,9 +51,19 @@ class TelemetryTask(BaseTask):
         period_s: float,
         datastore: DataStore,
         transport: SerialTransport,
+        photodiode_samples: PhotodiodeSampleBuffer | None = None,
+        photodiode_batch_size: int = PHOTODIODE_BATCH_SIZE,
+        photodiode_batch_rate_hz: float = 2.0,
     ) -> None:
         super().__init__(name, period_s, datastore)
+        if not 1 <= photodiode_batch_size <= 255:
+            raise ValueError("photodiode_batch_size must be between 1 and 255")
+        if photodiode_batch_rate_hz <= 0:
+            raise ValueError("photodiode_batch_rate_hz must be greater than zero")
         self.transport = transport
+        self._photodiode_samples = photodiode_samples
+        self._photodiode_batch_size = photodiode_batch_size
+        self._photodiode_batch_period_s = 1.0 / photodiode_batch_rate_hz
         self._serializer = PacketSerializer()
         self._seq_counters: dict[int, int] = {}
 
@@ -62,11 +79,58 @@ class TelemetryTask(BaseTask):
             daemon=True,
         )
         self._stats_thread.start()
-        logger.info("TelemetryTask: transport opened")
+        self._next_photodiode_batch_t = time.monotonic()
+        # transport.open() itself logs whether the physical radio actually
+        # opened or is running radio-absent (tunnel-only) — see its own
+        # docstring. This just confirms setup() completed either way; it no
+        # longer implies the serial port specifically opened.
+        logger.info("TelemetryTask: setup complete")
+
+    def _send_photodiode_batch(self, now: float) -> None:
+        if self._photodiode_samples is None:
+            return
+        if now < self._next_photodiode_batch_t:
+            return
+
+        samples = self._photodiode_samples.peek_batch(
+            self._photodiode_batch_size
+        )
+        if not samples:
+            self._next_photodiode_batch_t = now + self._photodiode_batch_period_s
+            return
+
+        sample_period_us = PHOTODIODE_SAMPLE_PERIOD_US
+        if len(samples) > 1:
+            measured_period_us = round(
+                (samples[-1].time_unix_us - samples[0].time_unix_us)
+                / (len(samples) - 1)
+            )
+            sample_period_us = max(1, min(0xFFFF, measured_period_us))
+        packet = PhotodiodeBatchPacket(
+            samples=samples,
+            sample_period_us=sample_period_us,
+        )
+        packet_id = PHOTODIODE_BATCH_PACKET_ID
+        seq = self._seq_counters.get(packet_id, 0)
+        frame = self._serializer.pack(packet, seq=seq)
+        self.transport.send(frame)
+        self._seq_counters[packet_id] = (seq + 1) & 0xFF
+        self._photodiode_samples.discard(len(samples))
+        self.datastore.write(
+            "photodiode.tx_queue_depth", len(self._photodiode_samples)
+        )
+
+        self._next_photodiode_batch_t += self._photodiode_batch_period_s
+        if self._next_photodiode_batch_t < now:
+            self._next_photodiode_batch_t = now + self._photodiode_batch_period_s
 
     def execute(self) -> None:
         self.datastore.write("system.time_unix", time.time())
         now = time.monotonic()
+        try:
+            self._send_photodiode_batch(now)
+        except Exception:
+            logger.exception("TelemetryTask: error packing/sending photodiode batch")
 
         # Scale factor from radio.rate_scale, written by RadioConfigTask whenever
         # the modem data_rate changes. Defaults to 1.0 until radio config is known.
@@ -102,8 +166,13 @@ class TelemetryTask(BaseTask):
             field_types = {f.name: f.type for f in dataclasses.fields(pkt_class)}
             kwargs: dict[str, object] = {}
             for field_name, ds_key in pkt_class.DATASTORE_KEYS.items():
-                raw = self.datastore.read(ds_key, default=0)
-                kwargs[field_name] = int(raw) if field_types.get(field_name) == "int" else float(raw)
+                field_type = field_types.get(field_name)
+                if field_type == "str":
+                    kwargs[field_name] = str(self.datastore.read(ds_key, default=""))
+                elif field_type == "int":
+                    kwargs[field_name] = int(self.datastore.read(ds_key, default=0))
+                else:
+                    kwargs[field_name] = float(self.datastore.read(ds_key, default=0))
 
             try:
                 packet = pkt_class(**kwargs)

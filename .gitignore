@@ -18,10 +18,11 @@ __pycache__/
 
 # Flight logs and generated data
 altairfc/logs/
-*.csv
-*.log
+altairfc/*.csv
+altairfc/*.log
 
-
+# Compiled files
+altairfc/drivers/*.so
 
 # logs
 ./altairfc/logs/*

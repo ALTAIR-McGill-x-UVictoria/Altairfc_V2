@@ -6,6 +6,15 @@ baud = 115200
 port = "auto"   # "auto": detect CP210x (LR-900p); explicit: "/dev/ttyUSB0"; "none": disable radio
 baud = 57600
 
+[telemetry_tee]
+# Mirrors every byte written to the LR-900p radio out over a plain TCP
+# socket, so a ground station can read the same telemetry over the network
+# (e.g. a ZeroTier tunnel) when RF is unavailable but this Pi has internet.
+# Off by default — enable only if you've set up a tunnel to reach this port.
+enabled = true
+host = "0.0.0.0"
+port = 5760
+
 [tasks.mavlink]
 enabled = true
 period_s = 0.02   # 50 Hz
@@ -31,8 +40,14 @@ enabled = false
 period_s = 1.0
 
 [tasks.photodiode]
-enabled = false
-period_s = 0.01   # 100 Hz
+enabled = true
+period_s = 0.01   # 100 Hz TIA sample pairs
+signal_data_rate = "SPS_800"
+temperature_data_rate = "SPS_2000"
+temperature_period_s = 1.0
+batch_size = 50
+batch_tx_rate_hz = 2.0
+bias_voltage_v = 3.0   # applied to both sergeant and soldier readouts
 
 [tasks.power]
 enabled = true
@@ -58,6 +73,48 @@ period_s = 0.05   # 20 Hz tick — each packet logged at its own TX_RATE_HZ
 [tasks.radio_config]
 enabled  = true
 period_s = 0.5    # 2 Hz — command poll rate; actual radio I/O is blocking
+
+[tasks.lighting]
+enabled  = true  # PLACEHOLDER — enable once flight-ready
+period_s = 0.02   # was 0.2 (5 Hz) — too slow for the sphere current-hold loop below: at 5 Hz the loop can
+                   # only apply max_code_step of correction 5x/sec, far less closed-loop bandwidth than
+                   # tests/test_LED_system.py's free-running loop. period_s this low just makes the task
+                   # scheduler's deadline loop call execute() back-to-back (it self-throttles gracefully
+                   # on overrun, see core/task_base.py), so the loop ends up I2C-bound same as the test
+                   # script, not artificially capped at 5 Hz. Still tight enough for the 5s beacon flash
+                   # duration below.
+i2c_dev  = "/dev/i2c-1"
+sphere_target_current_a = 0.28   # A — PI current-hold target (drivers/sphere_led.py hold_current()/update())
+                                    # Sphere turns on as soon as the lighting task starts (not gated on
+                                    # event.ascent_active) and never turns off internally afterward —
+                                    # FlightStageTask stops the "lighting" task entirely at apogee
+                                    # (burst/termination), and teardown() zeroes both LED channels.
+sphere_kp = 10000.0   # PI current-loop gains — match tests/test_LED_system.py's defaults, the ones actually
+sphere_ki = 1000.0    # confirmed stable in soak testing; drivers/sphere_led.py's own defaults (2000/400)
+                      # were untested placeholders
+sphere_sense_resistor_ohm = 1.9   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
+beacon_sense_resistor_ohm = 1.9   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
+beacon_dac_code = 0   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
+                          # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the
+                          # channel 3 relay (drivers/beacon_led.py). 4095 = MAX_CODE, full DAC output.
+beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_windows entry below —
+                           # e.g. 2.0 = on 0.25s / off 0.25s, repeating
+
+# start_utc is UTC (system-clock) time-of-day "HH:MM:SS"; windows may cross UTC midnight.
+# period_s makes a window recur (default: one day, i.e. a single daily window).
+# Beacon flashes for 5s at :25 and :55 of every minute, whenever the sphere isn't on
+# (i.e. before the observation window starts and after this task is stopped at apogee).
+#[[tasks.lighting.beacon_windows]]
+#start_utc  = "00:00:25"
+#duration_s = 5.0
+#period_s   = 60.0
+#label      = "beacon_25"
+
+[[tasks.lighting.beacon_windows]]
+start_utc  = "00:00:55"
+duration_s = 5.0
+period_s   = 60.0
+label      = "beacon_55"
 
 [datalogger]
 log_root = "logs"   # relative to altairfc/; absolute paths also accepted
@@ -99,18 +156,27 @@ rw_torque_constant = 0.0525       # N·m/A
 rw_viscous_friction_coeff = 0.00021  # N·m·s/rad
 
 [flight_stage.require]
-mavlink   = true    # MAVLink attitude data must be fresh
-rw_vesc   = true    # reaction wheel VESC must be reporting
+mavlink   = true    # MAVLink attitude data must be fresh (was a bad USB cable, not a code issue — fixed)
+rw_vesc   = true    # reaction wheel VESC must be reporting (set false on a bench rig with no RW VESC, else
+                     # preflight never passes and STAGE_ASCENT / the sphere LED loop never engage)
 mm_vesc   = true    # momentum management VESC must be reporting
-gps       = false   # GPS must have a valid fix before arming
+gps       = true    # MAVLink GPS fix (GPS_RAW_INT) must be valid before arming
 
 [system]
 log_level = "INFO"
 monitor_interval_s = 5.0
 watchdog_sec = 30.0   # systemd WatchdogSec — must match flight.service
 
+[profiling]
+# Optional scheduler-task CPU profiler for test runs. When enabled, flight.log
+# shows CPU used by each AltairFC task plus unattributed helper-thread CPU.
+enabled = false
+interval_s = 5.0
+top_n = 5
+minimum_cpu_pct = 1.0
+
 [ground_station]
-use_hardcoded = true   # true: always use lat/lon/alt below; false: use GS GPS command if received
+use_hardcoded = false   # true: always use lat/lon/alt below; false: use GS GPS command if received
 latitude = 45.49446
 longitude = -73.55218
 altitude = 55.0

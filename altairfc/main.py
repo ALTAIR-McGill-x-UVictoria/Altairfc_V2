@@ -32,6 +32,7 @@ logger = logging.getLogger("main")
 # ---------------------------------------------------------------------------
 from config.settings import ControllerConfig, GroundStationConfig, SerialPortConfig, SystemConfig
 from core.datastore import DataStore
+from core.photodiode_stream import PhotodiodeSampleBuffer
 from core.lifecycle import install_signal_handlers, shutdown_event
 from core.scheduler import TaskScheduler
 from core.watchdog import WatchdogThread
@@ -52,6 +53,7 @@ import telemetry.packets.ack             # noqa: F401
 import telemetry.packets.flight_settings  # noqa: F401
 import telemetry.packets.pointing         # noqa: F401
 import telemetry.packets.radio_config     # noqa: F401
+import telemetry.packets.lighting         # noqa: F401
 
 # Import command modules so their @register decorators populate command_registry
 import telemetry.commands.arm            # noqa: F401
@@ -69,12 +71,17 @@ from tasks.photodiode_task import PhotodiodeTask
 from tasks.power_task import PowerTask
 from telemetry.telemetry_task import TelemetryTask
 from telemetry.transport import SerialTransport
+from telemetry.tee_server import TeeServer
+from drivers.port_detect import find_lr900p_port
 from tasks.pitch_task import PitchTask
 from tasks.datalogger_task import DataLoggerTask
 from tasks.radio_config_task import RadioConfigTask
 from tasks.pointing_supervisor_task import PointingSupervisorTask
 from tasks.rw_pointing_task import RWPointingTask
 from tasks.mm_pointing_task import MMPointingTask
+from tasks.lighting_task import LightingTask
+from drivers.ads1115 import SENSE_RESISTOR_OHM
+from drivers.beacon_led import BEACON_SENSE_RESISTOR_OHM
 
 
 
@@ -96,8 +103,11 @@ def main() -> None:
     config = SystemConfig.from_toml(config_path)
 
     # Create the per-session log directory now so both the file logger and
-    # DataLoggerTask share the same timestamped folder.
-    session_name = time.strftime("%Y-%m-%d_%H-%M-%S")
+    # DataLoggerTask share the same timestamped folder. Explicit UTC (not
+    # time.strftime's default localtime) so the folder name lines up with
+    # the UTC timestamps recorded inside flight.log and the DataLogger CSVs
+    # regardless of the Pi's system timezone setting.
+    session_name = time.strftime("%Y-%m-%d_%H-%M-%SZ", time.gmtime())
     datalogger_enabled = config.tasks.get("datalogger", None)
     if datalogger_enabled and datalogger_enabled.enabled:
         session_dir = config.log_root / session_name
@@ -108,7 +118,33 @@ def main() -> None:
         session_dir = None
         setup_logging(config.log_level)
 
+    def _resync_log_session(gps_dt) -> None:
+        # The Pi has no RTC and no network in flight, so session_dir above was
+        # named from a stale system clock (whatever it was at boot). Called
+        # once by GpsTask the first time GPS gives us real UTC time — rename
+        # the directory to match. Safe to do while flight.log/CSV files are
+        # open: renaming a directory doesn't affect already-open file
+        # descriptors inside it on Linux.
+        nonlocal session_dir
+        if session_dir is None:
+            return
+        new_dir = session_dir.parent / gps_dt.strftime("%Y-%m-%d_%H-%M-%SZ")
+        if new_dir == session_dir:
+            return
+        try:
+            session_dir.rename(new_dir)
+        except OSError as exc:
+            logger.warning("Failed to rename log session %s -> %s: %s", session_dir, new_dir, exc)
+            return
+        logger.info("Log session renamed after GPS time sync: %s -> %s", session_dir, new_dir)
+        session_dir = new_dir
+        datastore.write("system.log_dir", session_dir.name)
+
     datastore = DataStore()
+    datastore.write("system.log_dir", session_dir.name if session_dir is not None else "")
+    photodiode_sample_buffer = (
+        PhotodiodeSampleBuffer() if config.telemetry is not None else None
+    )
 
     # Write all flight settings to DataStore before tasks start.
     # FlightStageTask and PitchTask read these keys each cycle so that
@@ -157,6 +193,7 @@ def main() -> None:
             name="gps",
             period_s=config.tasks["gps"].period_s,
             datastore=datastore,
+            on_time_sync=_resync_log_session,
         )
     )
 
@@ -201,17 +238,46 @@ def main() -> None:
         )
     )
 
+    telemetry_tee_server: TeeServer | None = None
     if config.telemetry is not None:
         telemetry_transport = SerialTransport(
             port=config.telemetry.port,
             baud=config.telemetry.baud,
+            # Only when the operator asked for auto-detection — an explicit
+            # fixed path is retried as exactly that path, never silently
+            # swapped for whatever other CP210x device shows up later. See
+            # SerialPortConfig.is_auto and SerialTransport's port_resolver.
+            port_resolver=find_lr900p_port if config.telemetry.is_auto else None,
         )
+
+        if config.telemetry_tee.enabled:
+            # on_recv wires GS->FC command bytes arriving over the tunnel
+            # straight into the same buffer CommandReceiverTask already
+            # drains for serial commands (see SerialTransport.feed_command_bytes)
+            # — the only surviving GS->FC path now that the radio link
+            # itself is RF-unidirectional (FC->GS only).
+            telemetry_tee_server = TeeServer(
+                host=config.telemetry_tee.host,
+                port=config.telemetry_tee.port,
+                on_recv=telemetry_transport.feed_command_bytes,
+            )
+            telemetry_tee_server.start()
+            telemetry_transport.attach_tee(telemetry_tee_server)
         scheduler.register(
             TelemetryTask(
                 name="telemetry",
                 period_s=config.tasks["telemetry"].period_s,
                 datastore=datastore,
                 transport=telemetry_transport,
+                photodiode_samples=photodiode_sample_buffer,
+                photodiode_batch_size=int(
+                    config.tasks["photodiode"].extra.get("batch_size", 50)
+                ),
+                photodiode_batch_rate_hz=float(
+                    config.tasks["photodiode"].extra.get(
+                        "batch_tx_rate_hz", 2.0
+                    )
+                ),
             )
         )
         scheduler.register(
@@ -241,6 +307,7 @@ def main() -> None:
             period_s=config.tasks["flight_stage"].period_s,
             datastore=datastore,
             config=config.flight_stage,
+            scheduler=scheduler,
         )
     )
 
@@ -249,6 +316,26 @@ def main() -> None:
             name="photodiode",
             period_s=config.tasks["photodiode"].period_s,
             datastore=datastore,
+            signal_data_rate=config.tasks["photodiode"].extra.get(
+                "signal_data_rate", "SPS_800"
+            ),
+            temperature_data_rate=config.tasks["photodiode"].extra.get(
+                "temperature_data_rate", "SPS_2000"
+            ),
+            temperature_period_s=float(
+                config.tasks["photodiode"].extra.get(
+                    "temperature_period_s", 1.0
+                )
+            ),
+            bias_voltage_v=config.tasks["photodiode"].extra.get(
+                "bias_voltage_v", 0.0
+            ),
+            sample_buffer=photodiode_sample_buffer,
+            log_path=(
+                session_dir / "PhotodiodeSamples.csv"
+                if session_dir is not None
+                else None
+            ),
         )
     )
 
@@ -258,6 +345,27 @@ def main() -> None:
             period_s=config.tasks["power"].period_s,
             datastore=datastore,
             i2c_dev=config.tasks["power"].extra.get("i2c_dev", "/dev/i2c-1"),
+        )
+    )
+
+    scheduler.register(
+        LightingTask(
+            name="lighting",
+            period_s=config.tasks["lighting"].period_s,
+            datastore=datastore,
+            beacon_windows=config.tasks["lighting"].extra.get("beacon_windows", []),
+            i2c_dev=config.tasks["lighting"].extra.get("i2c_dev", "/dev/i2c-1"),
+            sphere_target_current_a=config.tasks["lighting"].extra.get("sphere_target_current_a"),
+            sphere_kp=config.tasks["lighting"].extra.get("sphere_kp"),
+            sphere_ki=config.tasks["lighting"].extra.get("sphere_ki"),
+            beacon_dac_code=config.tasks["lighting"].extra.get("beacon_dac_code", 1500),
+            beacon_flash_hz=config.tasks["lighting"].extra.get("beacon_flash_hz", 2.0),
+            sphere_sense_resistor_ohm=config.tasks["lighting"].extra.get(
+                "sphere_sense_resistor_ohm", SENSE_RESISTOR_OHM
+            ),
+            beacon_sense_resistor_ohm=config.tasks["lighting"].extra.get(
+                "beacon_sense_resistor_ohm", BEACON_SENSE_RESISTOR_OHM
+            ),
         )
     )
 
@@ -289,6 +397,8 @@ def main() -> None:
     watchdog.stop()
     scheduler.stop_all()
     buzzer.stop()
+    if telemetry_tee_server is not None:
+        telemetry_tee_server.stop()
     logger.info("ALTAIR V2 shutdown complete")
 
 

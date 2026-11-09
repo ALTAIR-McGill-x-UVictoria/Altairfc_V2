@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
-import tomllib
+try:
+    import tomllib   # stdlib on Python 3.11+
+except ModuleNotFoundError:
+    import tomli as tomllib   # Python 3.10 (e.g. the flight Pi's system interpreter)
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,21 +17,43 @@ logger = logging.getLogger(__name__)
 def _resolve_serial_port(cfg: dict[str, Any]) -> "SerialPortConfig | None":
     """
     Build a SerialPortConfig, resolving port="auto" by scanning for a CP210x device.
-    Returns None when port="none" or when auto-detect finds no device (logs a warning).
+
+    Returns None only when port="none" — the operator explicitly disabling
+    the telemetry radio entirely (this also disables TelemetryTask,
+    CommandReceiverTask, RadioConfigTask, AND the TeeServer tunnel — see
+    main.py's `if config.telemetry is not None:` block).
+
+    port="auto" finding no CP210x device does NOT return None — it still
+    returns a SerialPortConfig, just with an obviously-unopenable
+    placeholder port. This matters because a ground station reachable only
+    over the ZeroTier tunnel (no radio physically wired at all) is a
+    legitimate deployment now that SerialTransport.open() tolerates a
+    missing port and TeeServer/tunnel operation doesn't otherwise depend on
+    the radio (see transport.py's "radio absent" mode) — returning None
+    here used to take the entire telemetry block down with it, including
+    the tunnel, which has nothing to do with whether a CP210x happens to be
+    plugged in at this exact moment. SerialTransport's own background
+    _port_retry_loop keeps retrying the real device path, so a radio
+    plugged in later is picked up without a restart regardless of which
+    branch resolved it at startup.
     """
     port = cfg.get("port", "")
     if port.lower() == "none":
         return None
-    if port.lower() == "auto":
+    is_auto = port.lower() == "auto"
+    if is_auto:
         detected = find_lr900p_port()
         if detected is None:
             logger.warning(
-                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected — "
-                "telemetry radio disabled. Set port explicitly in config/settings.toml to suppress this."
+                "Telemetry port set to 'auto' but no CP210x (LR-900p) device was detected "
+                "yet — telemetry radio absent for now (SerialTransport will keep retrying "
+                "in the background). Telemetry/commands still flow normally over the tunnel "
+                "if telemetry_tee.enabled=true. Set port explicitly to suppress this warning."
             )
-            return None
-        port = detected
-    return SerialPortConfig(port=port, baud=cfg["baud"])
+            port = "auto-detect-pending (no CP210x found at startup)"
+        else:
+            port = detected
+    return SerialPortConfig(port=port, baud=cfg["baud"], is_auto=is_auto)
 
 @dataclass
 class ControllerConfig:
@@ -57,6 +82,13 @@ def _build_controller_config(cfg: dict[str, Any]) -> ControllerConfig:
 class SerialPortConfig:
     port: str
     baud: int
+    # True when port="auto" was configured — regardless of whether a device
+    # was actually found at startup. Lets main.py pass find_lr900p_port as
+    # SerialTransport's port_resolver only when the operator actually asked
+    # for auto-detection; an explicit fixed path (e.g. "/dev/ttyUSB0") means
+    # only that exact path should ever be retried, not whatever CP210x
+    # happens to be plugged in later.
+    is_auto: bool = False
 
 
 @dataclass
@@ -131,11 +163,34 @@ class RadioConfig:
 
 
 @dataclass
+class TelemetryTeeConfig:
+    """
+    Optional TCP mirror of the radio byte stream, for a ground station to
+    reach over the network (e.g. a ZeroTier tunnel) when RF is unavailable
+    but this Pi has internet. Off by default.
+    """
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 5760
+
+
+@dataclass
 class GroundStationConfig:
     latitude: float
     longitude: float
     altitude: float
     use_hardcoded: bool = True
+
+
+@dataclass
+class ProfilingConfig:
+    """Optional periodic CPU usage reporting for test runs."""
+
+    enabled: bool = False
+    interval_s: float = 5.0
+    top_n: int = 5
+    minimum_cpu_pct: float = 1.0
 
 
 @dataclass
@@ -153,6 +208,8 @@ class SystemConfig:
         default_factory=lambda: GroundStationConfig(latitude=0.0, longitude=0.0, altitude=0.0)
     )
     radio_config: RadioConfig = field(default_factory=RadioConfig)
+    telemetry_tee: TelemetryTeeConfig = field(default_factory=TelemetryTeeConfig)
+    profiling: ProfilingConfig = field(default_factory=ProfilingConfig)
     log_level: str = "INFO"
     monitor_interval_s: float = 5.0
     watchdog_sec: float = 30.0
@@ -244,6 +301,21 @@ class SystemConfig:
             rate_scale=rc_raw.get("rate_scale",         [0.1, 0.33, 1.0]),
         )
 
+        tee_raw = data.get("telemetry_tee", {})
+        telemetry_tee = TelemetryTeeConfig(
+            enabled=tee_raw.get("enabled", False),
+            host=tee_raw.get("host", "0.0.0.0"),
+            port=tee_raw.get("port", 5760),
+        )
+
+        profiling_raw = data.get("profiling", {})
+        profiling = ProfilingConfig(
+            enabled=profiling_raw.get("enabled", False),
+            interval_s=profiling_raw.get("interval_s", 5.0),
+            top_n=profiling_raw.get("top_n", 5),
+            minimum_cpu_pct=profiling_raw.get("minimum_cpu_pct", 1.0),
+        )
+
         return cls(
             mavlink=mavlink,
             telemetry=telemetry,
@@ -256,6 +328,8 @@ class SystemConfig:
             pointing=pointing,
             ground_station=ground_station,
             radio_config=radio_config,
+            telemetry_tee=telemetry_tee,
+            profiling=profiling,
             log_level=system.get("log_level", "INFO"),
             monitor_interval_s=system.get("monitor_interval_s"),
             watchdog_sec=system.get("watchdog_sec"),

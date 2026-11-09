@@ -6,7 +6,7 @@
 #include <linux/i2c-dev.h>
 #include <linux/i2c.h>
 
-#define INA3221_ADDR            0x40
+#define INA3221_ADDR            0x41
 
 /* Register map */
 #define REG_CONFIG              0x00

@@ -45,7 +45,7 @@ class INA3221Driver:
         if self._fd < 0:
             raise OSError(
                 f"ina3221_open failed on {i2c_dev} — "
-                "check I2C bus, address 0x40, and manufacturer ID"
+                "check I2C bus, address 0x41, and manufacturer ID"
             )
         logger.info("INA3221Driver: opened %s (fd=%d)", i2c_dev, self._fd)
 

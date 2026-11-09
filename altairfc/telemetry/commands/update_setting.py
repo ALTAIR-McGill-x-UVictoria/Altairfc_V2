@@ -28,6 +28,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "settings.mm_max_current",                # 15
     "settings.pointing_activate_altitude_m",  # 16
     "settings.pointing_duration_min",         # 17
+    "settings.sphere_target_current_a",       # 18
 )
 
 

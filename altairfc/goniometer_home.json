@@ -1,0 +1,18 @@
+{
+  "polar": {
+    "pin": 26,
+    "center_deg": 0.0,
+    "gear_ratio": 1.0,
+    "invert": false,
+    "min_deg": -90.0,
+    "max_deg": 90.0
+  },
+  "azimuth": {
+    "pin": 16,
+    "center_deg": 0.0,
+    "gear_ratio": 1.0,
+    "invert": false,
+    "min_deg": -90.0,
+    "max_deg": 90.0
+  }
+}
