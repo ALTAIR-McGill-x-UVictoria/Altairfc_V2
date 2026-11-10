@@ -224,6 +224,7 @@ def main() -> None:
             rw_port = config.rw_esc,
             rw_controller_config    = config.controller["reaction_wheel"],
             pointing_config = config.pointing,
+            ground_station  = config.ground_station,
         )
     )
 

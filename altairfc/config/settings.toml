@@ -176,10 +176,12 @@ top_n = 5
 minimum_cpu_pct = 1.0
 
 [ground_station]
-use_hardcoded = false   # true: always use lat/lon/alt below; false: use GS GPS command if received
-latitude = 45.49446
-longitude = -73.55218
-altitude = 55.0
+# Point the payload (RW yaw, and the sphere pitch servo) at this location.
+use_hardcoded = true    # true: always use lat/lon/alt below; false: use GS GPS command if received
+# Tim Hortons, 666 Sherbrooke O at University / Robert-Bourassa (OpenStreetMap node 4869938919)
+latitude = 45.5049869   # deg, +N
+longitude = -73.5731795 # deg, +E
+altitude = 56.0         # m MSL (SRTM ground elevation)
 
 [rw_esc]
 port = "/dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.4:1.0"

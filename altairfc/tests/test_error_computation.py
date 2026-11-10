@@ -35,6 +35,8 @@ def test_error_computation(bal_gps, desired_ned, attitude_q, expected_az, expect
     azimuth_error_rad, pitch_error_rad = compute_error(attitude_q, bal_gps, gs_coords)
 
     assert np.isfinite(azimuth_error_rad) and np.isfinite(pitch_error_rad)
-    assert abs(azimuth_error_rad - expected_az) < 1e-6
+    # Azimuth is undefined with the GS straight below the body (pitch error +-90 deg)
+    if abs(expected_pitch) < np.pi / 2 - 1e-6:
+        assert abs(azimuth_error_rad - expected_az) < 1e-6
     assert abs(pitch_error_rad - expected_pitch) < 1e-6
     print(azimuth_error_rad, pitch_error_rad)

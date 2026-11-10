@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
-from config.settings import ControllerConfig, PointingConfig, SerialPortConfig
+from config.settings import ControllerConfig, GroundStationConfig, PointingConfig, SerialPortConfig
 from controls.controller import Controller
+from controls.error_computation import compute_error
+from controls.ground_station import ground_station_position
 from controls.pointing_modes import KEY_MODE, PointingMode
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -19,11 +21,17 @@ class RWPointingTask(BaseTask):
         rw_port: SerialPortConfig,
         rw_controller_config: ControllerConfig,
         pointing_config: PointingConfig,
+        ground_station: GroundStationConfig,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         self._bias_rpm = pointing_config.rw_bias_rpm
         self.rw = RWDriver(rw_port.port)
         self.rw_controller = Controller(rw_controller_config, period_s)
+        self._default_gs_pos = [
+            ground_station.latitude,
+            ground_station.longitude,
+            ground_station.altitude,
+        ]
 
     def setup(self) -> None:
         self._mode = None # Re-enter the commanded mode after a restart
@@ -45,9 +53,13 @@ class RWPointingTask(BaseTask):
             self.rw.set_rpm(self._bias_rpm) # Spin up to the bias speed before pointing
 
         elif mode == PointingMode.POINTING:
-            yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
+            quat, pos, gs_pos = self._read_pointing_inputs()
+            az_err, _ = compute_error(quat, pos, gs_pos)
+            self.datastore.write("pointing.az_error", az_err)
             yaw_rate = float(self.datastore.read("mavlink.attitude.yawspeed", default=0.0))
-            rw_rpm_cmd = self.rw_controller.output(yaw, yaw_rate) + self._bias_rpm
+            # az_err is positive when the GS is right of the nose; negated so the controller sees
+            # the same sign as the old point-north error (yaw), keeping the gains valid.
+            rw_rpm_cmd = self.rw_controller.output(-az_err, yaw_rate) + self._bias_rpm
             self.rw.set_rpm(int(rw_rpm_cmd))
 
         else:
@@ -58,6 +70,21 @@ class RWPointingTask(BaseTask):
 
     def _on_enter(self, mode: PointingMode) -> None:
         self.rw_controller.reset_integrator()
+
+    def _read_pointing_inputs(self):
+        quat = [
+            float(self.datastore.read("mavlink.quaternion.x", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.y", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.z", default=0.0)),
+            float(self.datastore.read("mavlink.quaternion.w", default=1.0)),
+        ]
+        pos = [
+            float(self.datastore.read("mavlink.gps.lat", default=0.0)),
+            float(self.datastore.read("mavlink.gps.lon", default=0.0)),
+            float(self.datastore.read("mavlink.gps.alt", default=0.0)),
+        ]
+        gs_pos = ground_station_position(self.datastore, self._default_gs_pos)
+        return quat, pos, gs_pos
 
     def _store(self) -> None:
         data = self.rw.read()

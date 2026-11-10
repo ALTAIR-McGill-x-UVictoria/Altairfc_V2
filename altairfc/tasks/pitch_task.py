@@ -7,6 +7,7 @@ from core.datastore import DataStore
 from core.task_base import BaseTask
 from drivers.servo import ServoPointer, nadir_angle_deg
 from controls.error_computation import compute_error
+from controls.ground_station import ground_station_position
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +74,7 @@ class PitchTask(BaseTask):
             float(self.datastore.read("mavlink.gps.lon", default=0.0)),
             float(self.datastore.read("mavlink.gps.alt", default=0.0)),
         ]
-        use_hardcoded = float(self.datastore.read("settings.gs_use_hardcoded", default=1.0)) >= 1.0
-        if use_hardcoded:
-            gs_pos = [
-                float(self.datastore.read("settings.gs_lat", default=self._default_gs_pos[0])),
-                float(self.datastore.read("settings.gs_lon", default=self._default_gs_pos[1])),
-                float(self.datastore.read("settings.gs_alt", default=self._default_gs_pos[2])),
-            ]
-        else:
-            gs_lat = self.datastore.read("command.gs_lat", default=None)
-            gs_lon = self.datastore.read("command.gs_lon", default=None)
-            gs_alt = self.datastore.read("command.gs_alt", default=None)
-            gs_pos = (
-                [float(gs_lat), float(gs_lon), float(gs_alt)]
-                if all(v is not None for v in (gs_lat, gs_lon, gs_alt)) else self._default_gs_pos
-            )
+        gs_pos = ground_station_position(self.datastore, self._default_gs_pos)
         yaw = float(self.datastore.read("mavlink.attitude.yaw", default=0.0))
         return quat, pos, gs_pos, yaw
 
