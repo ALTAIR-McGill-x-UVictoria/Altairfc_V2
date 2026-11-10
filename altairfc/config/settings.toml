@@ -33,7 +33,7 @@ period_s = 0.05
 
 [tasks.mm_pointing]
 enabled = true
-period_s = 0.01   # 100 Hz — MM pulses are 24-112 ms and only end on a loop tick
+period_s = 0.05   # 100 Hz — MM pulses are 24-112 ms and only end on a loop tick
 
 [tasks.sphere_pitch]
 enabled = false
@@ -205,8 +205,8 @@ watchdog_s = 30.0 # seconds without GS contact on new channel before rolling bac
 rate_scale = [0.1, 0.33, 1.0]
 
 [controller.reaction_wheel]
-Kp = 10000.0
-Kd = 0.0
+Kp = 9000.0
+Kd = 624.0
 Ki = 0.0
 max_rpm = 1500.0
 min_rpm = -1500.0
