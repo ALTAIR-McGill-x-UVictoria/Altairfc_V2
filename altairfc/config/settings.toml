@@ -142,12 +142,12 @@ rw_bias_rpm = 1500.0  # RW speed the pointing controller works around; MM dumps 
 
 [modulator]
 # MM (pivot motor) pulse width modulator, tuned in HAB_ADCS_SIM (parameters_ec60.json)
-pulse_current = 3.0               # MM current during a pulse (A)
+pulse_current = -3.0               # MM current during a pulse (A)
 settle_time = 0.2                 # MM released after a pulse, accumulator frozen (s)
 integration_threshold = 0.1       # accumulator level that fires a pulse
 deadband = 0.21                   # normalized RW speed offset ignored by the accumulator
 loop_gain = 1.0                   # pulse width per unit of normalized offset
-lookahead_s = 0.5                 # RW speed prediction horizon (s)
+lookahead_s = 0.05                 # RW speed prediction horizon (s)
 mm_torque_constant = 0.128        # MM motor (N·m/A)
 rw_max_offset_rpm = 1500.0        # RW speed offset from the bias that normalizes to 1
 rw_rotor_inertia = 0.0000810      # kg·m²
