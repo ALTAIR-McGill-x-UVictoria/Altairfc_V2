@@ -29,15 +29,15 @@ period_s = 0.01   # no I/O; lower it to cut mode-switch latency
 
 [tasks.rw_pointing]
 enabled = true
-period_s = 0.05
+period_s = 0.02
 
 [tasks.mm_pointing]
 enabled = true
-period_s = 0.05   # 100 Hz — MM pulses are 24-112 ms and only end on a loop tick
+period_s = 0.01   # 100 Hz — MM pulses are 24-112 ms and only end on a loop tick
 
 [tasks.sphere_pitch]
-enabled = false
-period_s = 1.0
+enabled = true
+period_s = 0.1
 
 [tasks.photodiode]
 enabled = true
@@ -94,7 +94,7 @@ sphere_ki = 1000.0    # confirmed stable in soak testing; drivers/sphere_led.py'
                       # were untested placeholders
 sphere_sense_resistor_ohm = 1.9   # AIN0 current-sense resistor for the sphere channel (MCP4728 ch A)
 beacon_sense_resistor_ohm = 1.9   # AIN1 current-sense resistor for the beacon channel (MCP4728 ch B)
-beacon_dac_code = 0   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
+beacon_dac_code = 4095   # Open-loop brightness setpoint, MCP4728 channel 1 (0-4095, clamped by
                           # BEACON_MAX_SAFE_CODE); held constant, on/off toggling below drives the
                           # channel 3 relay (drivers/beacon_led.py). 4095 = MAX_CODE, full DAC output.
 beacon_flash_hz = 2.0     # strobe rate (50% duty cycle) while inside a beacon_windows entry below —
@@ -143,12 +143,12 @@ rw_bias_rpm = 1500.0  # RW speed the pointing controller works around; MM dumps 
 [modulator]
 # MM (pivot motor) pulse width modulator, tuned in HAB_ADCS_SIM (parameters_ec60.json)
 pulse_current = -3.0               # MM current during a pulse (A)
-settle_time = 0.2                 # MM released after a pulse, accumulator frozen (s)
-integration_threshold = 0.1       # accumulator level that fires a pulse
-deadband = 0.21                   # normalized RW speed offset ignored by the accumulator
-loop_gain = 1.0                   # pulse width per unit of normalized offset
+settle_time = 0.3                 # MM released after a pulse, accumulator frozen (s)
+integration_threshold = 0.15       # accumulator level that fires a pulse
+deadband = 0.25                   # normalized RW speed offset ignored by the accumulator
+loop_gain = 0.5                   # pulse width per unit of normalized offset
 lookahead_s = 0.05                 # RW speed prediction horizon (s)
-mm_torque_constant = 0.128        # MM motor (N·m/A)
+mm_torque_constant = -0.128        # MM motor (N·m/A)
 rw_max_offset_rpm = 1500.0        # RW speed offset from the bias that normalizes to 1
 rw_rotor_inertia = 0.0000810      # kg·m²
 rw_load_inertia = 0.000194        # kg·m²
@@ -160,7 +160,7 @@ mavlink   = true    # MAVLink attitude data must be fresh (was a bad USB cable, 
 rw_vesc   = true    # reaction wheel VESC must be reporting (set false on a bench rig with no RW VESC, else
                      # preflight never passes and STAGE_ASCENT / the sphere LED loop never engage)
 mm_vesc   = true    # momentum management VESC must be reporting
-gps       = true    # MAVLink GPS fix (GPS_RAW_INT) must be valid before arming
+gps       = false   # MAVLink GPS fix (GPS_RAW_INT) must be valid before arming
 
 [system]
 log_level = "INFO"
@@ -207,7 +207,7 @@ watchdog_s = 30.0 # seconds without GS contact on new channel before rolling bac
 rate_scale = [0.1, 0.33, 1.0]
 
 [controller.reaction_wheel]
-Kp = 9000.0
+Kp = 8000.0
 Kd = 624.0
 Ki = 0.0
 max_rpm = 1500.0
