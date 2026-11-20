@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from config.settings import GroundStationConfig
 from core.datastore import DataStore
 from core.task_base import BaseTask
@@ -10,6 +11,11 @@ from controls.error_computation import compute_error
 from controls.ground_station import ground_station_position
 
 logger = logging.getLogger(__name__)
+
+# GPS counts as lost when no receiver has a 3D fix, or the fix / EKF position is older than this.
+_GPS_STALE_S = 2.0
+# pitch error of +90° = GS straight below = servo at nadir (0° deflection)
+_NADIR_PITCH_ERR_RAD = math.pi / 2
 
 
 class PitchTask(BaseTask):
@@ -27,7 +33,7 @@ class PitchTask(BaseTask):
             ground_station.longitude,
             ground_station.altitude,
         ]
-        
+        self._gps_lost: bool | None = None  # None until the first execute()
 
     def setup(self) -> None:
         self._servo = ServoPointer()
@@ -52,7 +58,19 @@ class PitchTask(BaseTask):
             logger.info("PitchTask: run duration elapsed — stopping motor")
             self._stop_event.set()
             return
-        
+
+        gps_lost = not self._gps_ok()
+        if gps_lost != self._gps_lost:
+            if gps_lost:
+                logger.warning("PitchTask: no GPS fix — pointing the sphere straight down")
+            elif self._gps_lost is not None:
+                logger.info("PitchTask: GPS fix back — pointing at the ground station")
+            self._gps_lost = gps_lost
+        if gps_lost:
+            self._servo.set_pitch_error(_NADIR_PITCH_ERR_RAD)
+            self.datastore.write("pointing.source_angle_deg", 0.0)
+            return
+
         quat, pos, gs_pos, yaw = self._read()
         az_err, pitch_err = compute_error(quat, pos, gs_coords=gs_pos)
         self._write_pointing(yaw, az_err, pitch_err)
@@ -61,6 +79,16 @@ class PitchTask(BaseTask):
     def teardown(self) -> None:
         self._servo.disconnect()
 
+
+    def _gps_ok(self) -> bool:
+        """True when a receiver has a fresh 3D fix and the EKF position is fresh."""
+        now = time.monotonic()
+        fix = self.datastore.read_with_timestamp("mavlink.gps.fix_type")
+        pos = self.datastore.read_with_timestamp("mavlink.gps.lat")
+        return (
+            fix is not None and int(fix[0]) >= 3 and now - fix[1] < _GPS_STALE_S
+            and pos is not None and now - pos[1] < _GPS_STALE_S
+        )
 
     def _read(self):
         quat = [

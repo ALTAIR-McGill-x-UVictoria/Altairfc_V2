@@ -13,9 +13,14 @@ from core.task_base import BaseTask
 logger = logging.getLogger(__name__)
 
 # MAVLink message types this task subscribes to.
-# GPS_RAW_INT is used instead of GLOBAL_POSITION_INT — PX4 streams it by default.
-# LOCAL_POSITION_NED provides relative altitude (above home) since GPS_RAW_INT omits it.
-_SUBSCRIBED_TYPES = ("ATTITUDE", "ATTITUDE_QUATERNION", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
+# Position comes from GLOBAL_POSITION_INT (PX4 EKF), which follows whichever GPS receiver
+# PX4 has selected (SENS_GPS_PRIME / automatic failover), so every reader of mavlink.gps.*
+# inherits that choice. GPS_RAW_INT / GPS2_RAW (the two raw receivers) supply fix quality only.
+# LOCAL_POSITION_NED provides relative altitude (above home).
+_SUBSCRIBED_TYPES = ("ATTITUDE", "ATTITUDE_QUATERNION", "GLOBAL_POSITION_INT", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
+
+# A receiver's fix report older than this is ignored when picking the best fix.
+_GPS_FIX_STALE_S = 2.0
 
 
 class MavlinkTask(BaseTask):
@@ -33,14 +38,13 @@ class MavlinkTask(BaseTask):
         mavlink.attitude.rollspeed   (float, rad/s)
         mavlink.attitude.pitchspeed  (float, rad/s)
         mavlink.attitude.yawspeed    (float, rad/s)
-        mavlink.gps.lat              (float, deg)   — from GPS_RAW_INT
+        mavlink.gps.lat              (float, deg)   — EKF position, from GLOBAL_POSITION_INT
         mavlink.gps.lon              (float, deg)
-        mavlink.gps.alt              (float, m)     — MSL altitude
+        mavlink.gps.alt              (float, m)     — EKF altitude AMSL (follows EKF2_HGT_REF)
         mavlink.gps.relative_alt     (float, m)     — above home, from LOCAL_POSITION_NED (-z)
-        mavlink.gps.hdg              (float, deg)   — vehicle heading 0-360, from GPS_RAW_INT
-        mavlink.gps.num_sv           (int)          — satellites visible, from GPS_RAW_INT
-        mavlink.gps.fix_type         (int)          — 0=no GPS 1=no fix 2=2D 3=3D 4=DGPS 5/6=RTK, from GPS_RAW_INT
-        mavlink.heading              (float, deg)   — dual-antenna yaw 0-360, from GPS2_RAW (only written when valid)
+        mavlink.gps.hdg              (float, deg)   — course over ground 0-360, from GPS_RAW_INT
+        mavlink.gps.num_sv           (int)          — satellites used by the better of GPS_RAW_INT / GPS2_RAW
+        mavlink.gps.fix_type         (int)          — 0=no GPS 1=no fix 2=2D 3=3D 4=DGPS 5/6=RTK, better of the two receivers
         mavlink.environment.press_abs    (float, hPa)  — from SCALED_PRESSURE
         mavlink.environment.press_diff   (float, hPa)
         mavlink.environment.temperature  (float, °C)   — centidegrees converted
@@ -66,6 +70,8 @@ class MavlinkTask(BaseTask):
         self._connect_retry_s = connect_retry_s
         self._master = None
         self._nonfinite_warned: set[str] = set()
+        # Latest (fix_type, num_sv, monotonic) per raw receiver message type
+        self._gps_fix: dict[str, tuple[int, int, float]] = {}
 
     def setup(self) -> None:
         while not self._stop_event.is_set():
@@ -107,6 +113,7 @@ class MavlinkTask(BaseTask):
         requests = [
             (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,            20_000),   # 50 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION, 20_000),   # 50 Hz 
+            (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200_000),  #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT,        200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_GPS2_RAW,           200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 200_000),   #  5 Hz
@@ -177,23 +184,26 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.quaternion.y", f(msg.q3, field="mavlink.quaternion.y"))
             self.datastore.write("mavlink.quaternion.z", f(msg.q4, field="mavlink.quaternion.z"))
 
-        elif msg_type == "GPS_RAW_INT":
-            # lat/lon in 1e-7 deg, alt in mm, cog (course over ground) in cdeg
+        elif msg_type == "GLOBAL_POSITION_INT":
+            # EKF position from the receiver PX4 has selected. lat/lon in 1e-7 deg, alt in mm AMSL.
+            # alt is EKF height: set EKF2_HGT_REF = GPS so it does not follow the baro at altitude.
             self.datastore.write("mavlink.gps.lat", f(msg.lat / 1e7, field="mavlink.gps.lat"))
             self.datastore.write("mavlink.gps.lon", f(msg.lon / 1e7, field="mavlink.gps.lon"))
             self.datastore.write("mavlink.gps.alt", f(msg.alt / 1e3, field="mavlink.gps.alt"))
-            self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2, field="mavlink.gps.hdg"))
-            self.datastore.write("mavlink.gps.num_sv", int(msg.satellites_visible))
-            self.datastore.write("mavlink.gps.fix_type", int(msg.fix_type))
 
-        # elif msg_type == "GPS2_RAW":
-        #     # yaw in cdeg from dual-antenna RTK source; 0 = unavailable, 65535 = no fix yet
-        #     if msg.yaw is not None: 
-        #         yaw_cdeg = msg.yaw
-        #         if yaw_cdeg not in (0, 65535):
-        #             self.datastore.write("mavlink.heading", f(yaw_cdeg / 1e2))
-        #     else:
-        #         logger.info("MavlinkTask: GPS2_RAW message received but yaw is None (not supported by current firmware?)")
+        elif msg_type in ("GPS_RAW_INT", "GPS2_RAW"):
+            # Raw receivers (GPS1 / GPS2) supply fix quality only. Report the better of the two,
+            # like PX4's own receiver selection, so the arm check matches what the EKF can use.
+            now = time.monotonic()
+            self._gps_fix[msg_type] = (int(msg.fix_type), int(msg.satellites_visible), now)
+            fix_type, num_sv = max(
+                (fix, sv) for fix, sv, t in self._gps_fix.values() if now - t < _GPS_FIX_STALE_S
+            )
+            self.datastore.write("mavlink.gps.fix_type", fix_type)
+            self.datastore.write("mavlink.gps.num_sv", num_sv)
+            if msg_type == "GPS_RAW_INT":
+                # cog (course over ground) in cdeg
+                self.datastore.write("mavlink.gps.hdg", f(msg.cog / 1e2, field="mavlink.gps.hdg"))
 
         elif msg_type == "LOCAL_POSITION_NED":
             # NED frame: z is positive downward, so relative_alt = -z
