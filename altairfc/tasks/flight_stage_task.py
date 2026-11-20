@@ -77,7 +77,7 @@ _VESC_RPM_TIMEOUT_S   = 5.0   # VESC data must have arrived within this many sec
 # Arm checks
 
 _NEUTRAL_YAW_RATE = 0.15  # rad/s — max yaw rate to consider orientation stable
-_GPS_MIN_SV = 6            # minimum satellites in view for a valid GPS fix
+_GPS_MIN_SV = 4            # minimum satellites in view for a valid GPS fix
 
 # Altitude tolerance for "stationary" check (m)
 _STATIONARY_BAND_M = 2.0
