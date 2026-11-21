@@ -10,9 +10,12 @@ from drivers.sphere_led import LedState
 from tasks.lighting_task import (
     ImagingWindow,
     LightingTask,
+    PulseSchedule,
     flash_state,
     parse_windows,
     seconds_to_window,
+    sphere_pulse_on,
+    validate_schedule,
     window_active,
 )
 
@@ -133,6 +136,9 @@ class _FakeSphere:
         self.target_current_a = target_a
         self.kp = kp
         self.ki = ki
+
+    def set_code(self, code: int) -> None:
+        self._pair.sphere_code = code
 
     def update(self) -> LedState:
         self._pair.sphere_code = 1   # stand-in for "DAC is now driving toward target"
@@ -368,3 +374,126 @@ def test_setup_resets_sphere_on_and_beacon_on_across_restarts(monkeypatch):
 
     assert task._sphere_on is False
     assert task._beacon_on is False
+
+
+# ---------------------------------------------------------------------------
+# Pulsed sphere (open loop, UTC-minute locked) and the shared schedule's validator
+# ---------------------------------------------------------------------------
+
+_SCHEDULE = {
+    "minute_period_s": 60.0, "beacon_start_s": 55.0, "beacon_duration_s": 5.0,
+    "exposure_start_s": 15.0, "exposure_s": 15.0, "exposure_delay_max_s": 10.0, "guard_s": 5.0,
+}
+_PULSE = {"enabled": True, "on_s": 0.5, "period_s": 3.0, "first_pulse_s": 0.0, "dac_code": 3300}
+_BEACON_55 = [{"start_utc": "00:00:55", "duration_s": 5.0, "period_s": 60.0, "label": "beacon_55"}]
+
+
+def _pulse_task(schedule=None, pulse=None, **kwargs):
+    task = LightingTask(
+        "lighting", 0.02, DataStore(), beacon_windows=_BEACON_55,
+        schedule=dict(_SCHEDULE, **(schedule or {})), sphere_pulse=dict(_PULSE, **(pulse or {})), **kwargs,
+    )
+    pair = _FakeChannelState()
+    task._board = object()
+    task._sphere = _FakeSphere(pair)
+    task._beacon = _FakeBeacon(pair)
+    return task, pair
+
+
+def test_sphere_pulse_on_edges_within_the_minute():
+    p = PulseSchedule(on_s=0.5, period_s=3.0, first_pulse_s=0.0, dac_code=3300, window_end_s=55.0)
+    assert sphere_pulse_on(0.0, p) and sphere_pulse_on(0.49, p)
+    assert not sphere_pulse_on(0.5, p) and not sphere_pulse_on(2.99, p)
+    assert sphere_pulse_on(3.0, p) and sphere_pulse_on(54.0, p) and sphere_pulse_on(54.49, p)
+    assert not sphere_pulse_on(54.5, p)                      # last pulse ends at :54.5
+    assert not any(sphere_pulse_on(t / 10, p) for t in range(550, 600))   # dark for the whole beacon window
+    assert sphere_pulse_on(60.0, p)                          # first pulse of the next minute
+
+
+def test_sphere_pulse_phase_is_locked_to_the_utc_minute_not_the_day():
+    p = PulseSchedule(on_s=0.5, period_s=3.0, first_pulse_s=0.0, dac_code=3300, window_end_s=55.0)
+    for minute_start in (0.0, 60.0, 3600.0, 86400.0 - 60.0):
+        assert sphere_pulse_on(minute_start + 3.2, p) and not sphere_pulse_on(minute_start + 3.6, p)
+
+
+def test_sphere_pulse_19_pulses_per_minute_and_constant_on_time_in_any_exposure_window():
+    p = PulseSchedule(on_s=0.5, period_s=3.0, first_pulse_s=0.0, dac_code=3300, window_end_s=55.0)
+    dt = 0.01
+    ticks = [sphere_pulse_on(i * dt, p) for i in range(6000)]
+    assert sum(1 for a, b in zip([False] + ticks[:-1], ticks) if b and not a) == 19
+    # a 15 s window that starts anywhere between :15 and :25 (command :15 plus a lag of 0-10 s) always holds 2.5 s of ON time
+    for lag_ticks in range(0, 1001, 25):
+        start = 1500 + lag_ticks
+        assert sum(ticks[start:start + 1500]) * dt == pytest.approx(2.5, abs=0.02)
+
+
+def test_validate_schedule_accepts_the_flight_schedule():
+    assert validate_schedule(_SCHEDULE, _PULSE, parse_windows(_BEACON_55)) == []
+
+
+@pytest.mark.parametrize("schedule,pulse,fragment", [
+    ({"exposure_start_s": 35.0}, {}, "beacon flash starts"),
+    ({"exposure_s": 20.0}, {}, "whole number of pulse periods"),
+    ({"exposure_start_s": 2.0}, {}, "previous minute"),
+    ({}, {"period_s": 7.0}, "does not divide the minute"),
+    ({}, {"on_s": 3.0}, "shorter than period_s"),
+    ({"beacon_start_s": 50.0}, {}, "no recurring window matching"),
+])
+def test_validate_schedule_rejects(schedule, pulse, fragment):
+    problems = validate_schedule(dict(_SCHEDULE, **schedule), dict(_PULSE, **pulse), parse_windows(_BEACON_55))
+    assert any(fragment in p for p in problems), problems
+
+
+def test_construction_raises_on_an_invalid_schedule():
+    with pytest.raises(ValueError, match="invalid pulsed-sphere schedule"):
+        _pulse_task(schedule={"exposure_start_s": 35.0})
+
+
+def test_pulse_mode_drives_the_dac_open_loop_between_zero_and_the_configured_code():
+    task, pair = _pulse_task()
+    task._apply(True, None, 0.1)                  # inside the first pulse
+    assert task._sphere_on is True and pair.sphere_code == 3300
+    task._apply(True, None, 1.0)                  # between pulses
+    assert task._sphere_on is False and pair.sphere_code == 0
+    task._apply(True, None, 3.1)                  # second pulse
+    assert pair.sphere_code == 3300 and task._pulse_count == 2
+    assert task._sphere.target_current_a is None  # the current loop is never engaged
+    assert task.datastore.read("lighting.pulse_count") == 2
+    assert task.datastore.read("lighting.pulse_edge_on") == 1
+
+
+def test_pulse_mode_does_not_write_the_dac_again_while_the_state_is_unchanged():
+    task, pair = _pulse_task()
+    task._apply(True, None, 0.1)
+    pair.sphere_code = 1234                        # sentinel: a second write would overwrite it
+    task._apply(True, None, 0.2)
+    assert pair.sphere_code == 1234
+
+
+def test_pulse_mode_is_dark_in_the_beacon_window_while_the_beacon_flashes():
+    task, pair = _pulse_task()
+    window = parse_windows(_BEACON_55)[0]
+    task._apply(True, None, 54.2)
+    assert pair.sphere_code == 3300
+    task._apply(True, window, 56.0)               # in the window, on the on-half of the 2 Hz strobe
+    assert pair.sphere_code == 0 and task._sphere_on is False
+    assert task._beacon_on is True and pair.relay_code == 1
+    task._apply(True, None, 60.1)                 # next minute's first pulse
+    assert pair.sphere_code == 3300
+
+
+def test_pulse_mode_ignores_a_ground_commanded_target_current():
+    task, pair = _pulse_task()
+    task._apply(True, None, 0.1)
+    task.datastore.write("settings.sphere_target_current_a", 0.35)
+    task._apply(True, None, 0.2)
+    assert task._sphere.target_current_a is None
+
+
+def test_pulse_mode_disabled_keeps_the_continuous_current_held_sphere():
+    task = LightingTask("lighting", 0.02, DataStore(), beacon_windows=_BEACON_55, sphere_target_current_a=0.28,
+                        schedule=_SCHEDULE, sphere_pulse=dict(_PULSE, enabled=False))
+    pair = _FakeChannelState()
+    task._board, task._sphere, task._beacon = object(), _FakeSphere(pair), _FakeBeacon(pair)
+    task._apply(True, None, 1.0)                  # a moment that is dark in pulsed mode
+    assert task._sphere_on is True and task._sphere.target_current_a == pytest.approx(0.28)

@@ -16,6 +16,7 @@ from drivers.sphere_led import LedState, SphereLedSource
 logger = logging.getLogger(__name__)
 
 _SECONDS_PER_DAY = 86400.0
+_PULSED_TELEMETRY_PERIOD_S = 0.25
 
 
 @dataclass
@@ -74,6 +75,64 @@ def flash_state(now_s: float, flash_hz: float) -> bool:
     return (now_s % period_s) < (period_s / 2.0)
 
 
+@dataclass(frozen=True)
+class PulseSchedule:
+    """Open-loop pulsed sphere: pulse k of every UTC minute starts at first_pulse_s + k * period_s and lasts on_s;
+    nothing is lit from window_end_s (the start of the naked-eye beacon window) to the end of the minute."""
+
+    on_s: float
+    period_s: float
+    first_pulse_s: float
+    dac_code: int
+    window_end_s: float
+    minute_period_s: float = 60.0
+
+
+def sphere_pulse_on(now_s: float, p: PulseSchedule) -> bool:
+    """True while the pulsed sphere should be lit. now_s is seconds since UTC midnight; the phase is locked to the UTC minute."""
+    t = now_s % p.minute_period_s
+    if t >= p.window_end_s:
+        return False
+    return ((t - p.first_pulse_s) % p.period_s) < p.on_s
+
+
+def validate_schedule(schedule: dict[str, Any], pulse: dict[str, Any], beacon_windows: list[ImagingWindow]) -> list[str]:
+    """Problems with the shared UTC schedule ([tasks.lighting.schedule] + [tasks.lighting.sphere_pulse]); empty when it is consistent.
+
+    LightingTask raises on a non-empty list at construction, so a bad settings.toml fails on the bench, not in flight. The ground station
+    reads the same tables and applies the same rules before it commands an exposure."""
+    minute = float(schedule.get("minute_period_s", 60.0))
+    beacon_start = float(schedule["beacon_start_s"])
+    beacon_dur = float(schedule["beacon_duration_s"])
+    exp_start = float(schedule["exposure_start_s"])
+    exp_s = float(schedule["exposure_s"])
+    delay_max = float(schedule["exposure_delay_max_s"])
+    guard = float(schedule["guard_s"])
+    on_s = float(pulse["on_s"])
+    period = float(pulse["period_s"])
+    first = float(pulse.get("first_pulse_s", 0.0))
+    problems: list[str] = []
+    if beacon_start + beacon_dur > minute + 1e-9:
+        problems.append("beacon window runs past the end of the minute")
+    if exp_start < guard:
+        problems.append("exposure may start inside the guard after the previous minute's beacon window")
+    if exp_start + exp_s + delay_max + guard > beacon_start + 1e-9:
+        problems.append("an exposure can still be open when the beacon flash starts")
+    if on_s <= 0 or period <= 0 or on_s >= period:
+        problems.append("pulse on_s must be positive and shorter than period_s")
+    else:
+        if abs(minute / period - round(minute / period)) > 1e-9:
+            problems.append("pulse period does not divide the minute: the pulse phase would drift between minutes")
+        if abs(exp_s / period - round(exp_s / period)) > 1e-9:
+            problems.append("exposure is not a whole number of pulse periods: ON time per frame would depend on the phase")
+        k_last = int((beacon_start - first - on_s) // period)
+        if k_last < 0 or first + k_last * period + on_s > beacon_start + 1e-9:
+            problems.append("no pulse fits before the beacon window")
+    if not any(abs((w.start_s % minute) - beacon_start) < 1e-6 and abs(w.period_s - minute) < 1e-6 and w.duration_s >= beacon_dur - 1e-9 for w in beacon_windows):
+        problems.append("beacon_windows has no recurring window matching schedule.beacon_start_s / beacon_duration_s")
+    return problems
+
+
 class LightingTask(BaseTask):
     """
     Two independent behaviors sharing one LED board, run fully independently
@@ -121,6 +180,12 @@ class LightingTask(BaseTask):
     flight (see system.pps_synced for that diagnostic) — there is no separate
     fallback branch.
 
+    PULSED SPHERE (branch pulsed-sphere). When [tasks.lighting.sphere_pulse] enabled = true the sphere is NOT held by the current loop: it is
+    driven open loop between DAC code 0 and sphere_pulse.dac_code on a UTC-minute-locked schedule (sphere_pulse_on), dark during the
+    naked-eye beacon window. The PI loop, the target current and the ground-commanded target-current update are not used in this mode. The
+    schedule (shared with the ground station, which commands the exposures) is validated at construction (validate_schedule).
+    Each edge is logged (INFO, Pi UTC) and written to lighting.pulse_edge_utc / pulse_edge_on / pulse_count.
+
     DataStore keys read:
         event.ascent_active          — telemetry only (mirrored to lighting.observation_active
                                         below); no longer gates the sphere, which latches on at
@@ -152,6 +217,8 @@ class LightingTask(BaseTask):
         beacon_flash_hz: float = 2.0,
         sphere_sense_resistor_ohm: float = SENSE_RESISTOR_OHM,
         beacon_sense_resistor_ohm: float = BEACON_SENSE_RESISTOR_OHM,
+        schedule: dict[str, Any] | None = None,
+        sphere_pulse: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(name=name, period_s=period_s, datastore=datastore)
         if beacon_flash_hz <= 0:
@@ -166,9 +233,29 @@ class LightingTask(BaseTask):
         self._sphere_sense_resistor_ohm = sphere_sense_resistor_ohm
         self._beacon_sense_resistor_ohm = beacon_sense_resistor_ohm
 
+        self._pulse: PulseSchedule | None = None
+        if sphere_pulse and sphere_pulse.get("enabled", False):
+            if not schedule:
+                raise ValueError("sphere_pulse is enabled but [tasks.lighting.schedule] is missing")
+            problems = validate_schedule(schedule, sphere_pulse, self._beacon_windows)
+            if problems:
+                raise ValueError("invalid pulsed-sphere schedule: " + "; ".join(problems))
+            self._pulse = PulseSchedule(
+                on_s=float(sphere_pulse["on_s"]),
+                period_s=float(sphere_pulse["period_s"]),
+                first_pulse_s=float(sphere_pulse.get("first_pulse_s", 0.0)),
+                dac_code=max(0, min(4095, int(sphere_pulse["dac_code"]))),
+                window_end_s=float(schedule["beacon_start_s"]),
+                minute_period_s=float(schedule.get("minute_period_s", 60.0)),
+            )
+            logger.info(
+                "LightingTask: pulsed sphere, %.2f s ON every %.2f s at DAC code %d, dark from :%02d of each minute",
+                self._pulse.on_s, self._pulse.period_s, self._pulse.dac_code, int(self._pulse.window_end_s),
+            )
+
         if not self._beacon_windows:
             logger.warning("LightingTask: no beacon windows configured — beacon will never flash")
-        if self._sphere_target_current_a is None:
+        if self._sphere_target_current_a is None and self._pulse is None:
             logger.warning("LightingTask: sphere_target_current_a not configured — sphere source will never fire")
 
         self._bus = None
@@ -178,6 +265,8 @@ class LightingTask(BaseTask):
 
         self._sphere_on = False
         self._beacon_on = False
+        self._pulse_count = 0
+        self._telemetry_t = 0.0
 
         # Sphere current-loop instrumentation: logs the achieved update() rate plus the
         # current spread seen each second, so both "is the loop running fast enough" and
@@ -206,6 +295,8 @@ class LightingTask(BaseTask):
         # like a healthy loop running at speed with target=nan and code=0).
         self._sphere_on = False
         self._beacon_on = False
+        self._pulse_count = 0
+        self._telemetry_t = 0.0
         self._loop_stats = {"sphere": self._new_loop_stats()}
         try:
             import smbus2
@@ -251,7 +342,10 @@ class LightingTask(BaseTask):
         self.datastore.write("lighting.beacon_on", int(self._beacon_on))
         self.datastore.write("lighting.observation_active", int(observation_active))
         self.datastore.write("lighting.next_beacon_flash_in_s", next_in_s)
-        self._write_channel_telemetry(sphere_state)
+        # Pulsed mode: the ADC reads behind this call are two I2C transactions, which would delay the next edge check at the task's 50 Hz rate -- 4 Hz is plenty.
+        if self._pulse is None or time.monotonic() - self._telemetry_t >= _PULSED_TELEMETRY_PERIOD_S:
+            self._telemetry_t = time.monotonic()
+            self._write_channel_telemetry(sphere_state)
 
     def _write_channel_telemetry(self, sphere_state: LedState | None) -> None:
         """DAC code + measured current for both channels, plus sphere temperature.
@@ -283,7 +377,9 @@ class LightingTask(BaseTask):
         # gated on event.ascent_active) and there is no internal path back
         # off. It only ever stops via this task being stopped (see the
         # class docstring) — teardown() zeroes it unconditionally.
-        if not self._sphere_on and self._sphere_target_current_a is not None:
+        if self._pulse is not None:
+            self._apply_pulse(now_s)
+        elif not self._sphere_on and self._sphere_target_current_a is not None:
             self._sphere.hold_current(
                 self._sphere_target_current_a, kp=self._sphere_kp, ki=self._sphere_ki
             )
@@ -297,7 +393,7 @@ class LightingTask(BaseTask):
             self._poll_target_current_update()
 
         sphere_state = None
-        if self._sphere_on:
+        if self._sphere_on and self._pulse is None:
             sphere_state = self._sphere.update()
             self._log_loop_stats(
                 "sphere", sphere_state.target_current_a, sphere_state.current_a,
@@ -315,6 +411,22 @@ class LightingTask(BaseTask):
         self._set_beacon(beacon_should_flash_on)
 
         return sphere_state
+
+    def _apply_pulse(self, now_s: float) -> None:
+        """Open-loop pulsed sphere: one DAC code step per edge, no PI loop, no ADC reads on this path."""
+        want = sphere_pulse_on(now_s, self._pulse)
+        if want == self._sphere_on:
+            return
+        code = self._pulse.dac_code if want else 0
+        self._sphere.set_code(code)
+        t_edge = time.time()          # Pi UTC system clock, immediately after the DAC write returned
+        self._sphere_on = want
+        if want:
+            self._pulse_count += 1
+        self.datastore.write("lighting.pulse_edge_utc", t_edge)
+        self.datastore.write("lighting.pulse_edge_on", int(want))
+        self.datastore.write("lighting.pulse_count", self._pulse_count)
+        logger.info("LightingTask: sphere pulse %d %s at %.3f UTC (DAC code %d)", self._pulse_count, "ON" if want else "OFF", t_edge, code)
 
     def _poll_target_current_update(self) -> None:
         """

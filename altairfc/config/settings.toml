@@ -116,6 +116,29 @@ duration_s = 5.0
 period_s   = 60.0
 label      = "beacon_55"
 
+# UTC-minute plan shared by this flight computer and the ground station (ALTAIR_GS_V3 reads this file already): the sphere pulses
+# from :00 to :55, the naked-eye beacon flashes in [:55, :60), and the GS commands one exposure per minute at exposure_start_s.
+# validate_schedule() (tasks/lighting_task.py) refuses to start the lighting task if these are inconsistent.
+[tasks.lighting.schedule]
+minute_period_s      = 60.0
+beacon_start_s       = 55.0   # must match the beacon_windows entry above (start :55, 5 s, every 60 s)
+beacon_duration_s    = 5.0
+exposure_start_s     = 15.0   # GS commands the exposure at this second of every UTC minute
+exposure_s           = 15.0   # whole multiple of sphere_pulse.period_s, so ON time per frame does not depend on the exposure's true start
+exposure_delay_max_s = 10.0   # worst-case command -> shutter-open lag (Aug 20 fits: 0-6 s, top censored); to be replaced by the bench measurement
+guard_s              = 5.0
+
+# Pulsed sphere (replaces the continuous current-held sphere when enabled = true): open loop, DAC code 0 <-> dac_code. The
+# PI loop, sphere_target_current_a and the ground-commanded target-current update are NOT used in this mode.
+[tasks.lighting.sphere_pulse]
+enabled       = true
+on_s          = 0.5
+period_s      = 3.0     # pulse k of each UTC minute starts at first_pulse_s + k * period_s (:00, :03, ... :54); the last ends at :54.5
+first_pulse_s = 0.0
+dac_code      = 3300    # fixed, no temperature compensation. Aug 20: the PI loop held 0.28 A at ~3280 with the LED at 16 degC and at ~3100 at 31-47 degC
+                        # (roughly 3e-4 A per code), so 3300 is about the Aug 20 drive for a cold LED and up to ~+0.2 mag for a warm one.
+                        # The per-pulse photodiode plateau is the calibrated quantity; log it for every pulse.
+
 [datalogger]
 log_root = "logs"   # relative to altairfc/; absolute paths also accepted
 

@@ -367,6 +367,8 @@ def main() -> None:
             beacon_sense_resistor_ohm=config.tasks["lighting"].extra.get(
                 "beacon_sense_resistor_ohm", BEACON_SENSE_RESISTOR_OHM
             ),
+            schedule=config.tasks["lighting"].extra.get("schedule"),
+            sphere_pulse=config.tasks["lighting"].extra.get("sphere_pulse"),
         )
     )
 
