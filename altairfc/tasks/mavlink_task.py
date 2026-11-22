@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # PX4 has selected (SENS_GPS_PRIME / automatic failover), so every reader of mavlink.gps.*
 # inherits that choice. GPS_RAW_INT / GPS2_RAW (the two raw receivers) supply fix quality only.
 # LOCAL_POSITION_NED provides relative altitude (above home).
-_SUBSCRIBED_TYPES = ("ATTITUDE", "ATTITUDE_QUATERNION", "GLOBAL_POSITION_INT", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD")
+_SUBSCRIBED_TYPES = ("ATTITUDE", "ATTITUDE_QUATERNION", "GLOBAL_POSITION_INT", "GPS_RAW_INT", "GPS2_RAW", "LOCAL_POSITION_NED", "SCALED_PRESSURE", "VFR_HUD", "SYS_STATUS")
 
 # A receiver's fix report older than this is ignored when picking the best fix.
 _GPS_FIX_STALE_S = 2.0
@@ -52,6 +52,7 @@ class MavlinkTask(BaseTask):
         mavlink.environment.climb        (float, m/s)
         mavlink.environment.airspeed     (float, m/s)
         mavlink.environment.groundspeed  (float, m/s)
+        mavlink.battery.voltage          (float, V)    — from SYS_STATUS (mV converted; 0.0 if unknown)
         system.pixhawk_connected         (float, 0.0/1.0)
     """
 
@@ -119,6 +120,7 @@ class MavlinkTask(BaseTask):
             (mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_SCALED_PRESSURE,    200_000),   #  5 Hz
             (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD,            200_000),   #  5 Hz
+            (mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS,         1_000_000), #  1 Hz
         ]
         for msg_id, interval_us in requests:
             self._master.mav.command_long_send(
@@ -219,6 +221,12 @@ class MavlinkTask(BaseTask):
             self.datastore.write("mavlink.environment.climb",       f(msg.climb, field="mavlink.environment.climb"))
             self.datastore.write("mavlink.environment.airspeed",    f(msg.airspeed, field="mavlink.environment.airspeed"))
             self.datastore.write("mavlink.environment.groundspeed", f(msg.groundspeed, field="mavlink.environment.groundspeed"))
+
+        elif msg_type == "SYS_STATUS":
+            # voltage_battery in mV; UINT16_MAX (65535) means "not available"
+            mv = msg.voltage_battery
+            volts = mv / 1e3 if mv != 0xFFFF else 0.0
+            self.datastore.write("mavlink.battery.voltage", f(volts, field="mavlink.battery.voltage"))
 
     def teardown(self) -> None:
         if self._master is not None:

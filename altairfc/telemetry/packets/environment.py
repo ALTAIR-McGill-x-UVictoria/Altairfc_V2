@@ -13,7 +13,7 @@ class EnvironmentPacket:
     Barometric and airspeed telemetry from the Pixhawk.
 
     Packet ID: 0x06
-    Payload size: 7 * 4 = 28 bytes
+    Payload size: 8 * 4 = 32 bytes
 
     Sources:
         SCALED_PRESSURE (MAVLink ID 29):
@@ -27,6 +27,9 @@ class EnvironmentPacket:
             airspeed    — indicated airspeed, m/s
             groundspeed — GPS ground speed, m/s
 
+        SYS_STATUS (MAVLink ID 1):
+            battery_voltage — Pixhawk-measured battery voltage, mV → V (0.0 if unknown)
+
     DataStore keys (written by MavlinkTask):
         "mavlink.environment.press_abs"
         "mavlink.environment.press_diff"
@@ -35,6 +38,7 @@ class EnvironmentPacket:
         "mavlink.environment.climb"
         "mavlink.environment.airspeed"
         "mavlink.environment.groundspeed"
+        "mavlink.battery.voltage"
     """
 
     TX_RATE_HZ: ClassVar[float] = 1.0
@@ -47,6 +51,7 @@ class EnvironmentPacket:
         "climb":       "mavlink.environment.climb",
         "airspeed":    "mavlink.environment.airspeed",
         "groundspeed": "mavlink.environment.groundspeed",
+        "battery_voltage": "mavlink.battery.voltage",
     }
 
     press_abs:   float = field(default=0.0, metadata=FieldMeta("f", "Absolute pressure",    "hPa").as_metadata())
@@ -56,3 +61,4 @@ class EnvironmentPacket:
     climb:       float = field(default=0.0, metadata=FieldMeta("f", "Ascent/descent rate",   "m/s").as_metadata())
     airspeed:    float = field(default=0.0, metadata=FieldMeta("f", "Airspeed",              "m/s").as_metadata())
     groundspeed: float = field(default=0.0, metadata=FieldMeta("f", "Ground speed",          "m/s").as_metadata())
+    battery_voltage: float = field(default=0.0, metadata=FieldMeta("f", "Pixhawk battery voltage", "V").as_metadata())
